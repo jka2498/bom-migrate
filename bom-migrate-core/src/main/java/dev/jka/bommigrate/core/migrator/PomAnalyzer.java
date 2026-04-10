@@ -4,16 +4,13 @@ import dev.jka.bommigrate.core.model.DependencyManagementMap;
 import dev.jka.bommigrate.core.model.MigrationAction;
 import dev.jka.bommigrate.core.model.MigrationCandidate;
 import dev.jka.bommigrate.core.model.MigrationReport;
+import dev.jka.bommigrate.core.model.PomModelReader;
 import dev.jka.bommigrate.core.model.ResolvedDependency;
 import dev.jka.bommigrate.core.resolver.PropertyInterpolator;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
-import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
-import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
 
 import java.io.IOException;
-import java.io.Reader;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -41,8 +38,8 @@ public final class PomAnalyzer {
      * @throws IOException on parse or file errors
      */
     public MigrationReport analyze(Path targetPomPath, DependencyManagementMap bomMap) throws IOException {
-        Model model = parseModel(targetPomPath);
-        PropertyInterpolator interpolator = buildInterpolator(model);
+        Model model = PomModelReader.parseModel(targetPomPath);
+        PropertyInterpolator interpolator = PomModelReader.buildInterpolator(model);
 
         List<Dependency> dependencies = model.getDependencies();
         if (dependencies == null) {
@@ -140,25 +137,5 @@ public final class PomAnalyzer {
             return null;
         }
         return interpolator.interpolate(version);
-    }
-
-    private PropertyInterpolator buildInterpolator(Model model) {
-        PropertyInterpolator interpolator = new PropertyInterpolator(model.getProperties());
-        interpolator.withProjectCoordinates(
-                model.getGroupId() != null ? model.getGroupId()
-                        : (model.getParent() != null ? model.getParent().getGroupId() : null),
-                model.getArtifactId(),
-                model.getVersion() != null ? model.getVersion()
-                        : (model.getParent() != null ? model.getParent().getVersion() : null)
-        );
-        return interpolator;
-    }
-
-    private Model parseModel(Path pomFile) throws IOException {
-        try (Reader reader = Files.newBufferedReader(pomFile)) {
-            return new MavenXpp3Reader().read(reader);
-        } catch (XmlPullParserException e) {
-            throw new IOException("Failed to parse POM: " + pomFile, e);
-        }
     }
 }
