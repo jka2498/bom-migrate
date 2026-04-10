@@ -78,6 +78,7 @@ jobs:
           BRANCH="chore/bump-${{ steps.next.outputs.NEXT_VERSION }}"
           git checkout main
           git pull origin main
+          git push origin --delete "$BRANCH" 2>/dev/null || true
           git checkout -b "$BRANCH"
           mvn versions:set -DnewVersion=${{ steps.next.outputs.NEXT_VERSION }} --batch-mode --no-transfer-progress
           git config user.name "github-actions[bot]"
@@ -90,3 +91,4 @@ jobs:
             --head "$BRANCH" \
             --title "chore: bump version to ${{ steps.next.outputs.NEXT_VERSION }}" \
             --body "Automated post-release version bump from v${{ steps.version.outputs.VERSION }}."
+          gh pr merge "$BRANCH" --auto --squash
