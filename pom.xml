@@ -28,6 +28,8 @@
         <github-api.version>1.330</github-api.version>
         <jgit.version>7.1.0.202411261347-r</jgit.version>
         <spring-boot.version>3.4.4</spring-boot.version>
+        <!-- Override Spring Boot 3.4.4's default Tomcat (10.1.x) with 11.0.14 -->
+        <tomcat.version>11.0.14</tomcat.version>
         <junit.version>6.0.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
 
@@ -72,6 +74,22 @@
                 <version>${spring-boot.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <!-- Explicit overrides: force Tomcat 11.0.14 regardless of what Spring Boot's BOM pins. -->
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-core</artifactId>
+                <version>${tomcat.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-el</artifactId>
+                <version>${tomcat.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-websocket</artifactId>
+                <version>${tomcat.version}</version>
             </dependency>
             <dependency>
                 <groupId>info.picocli</groupId>
