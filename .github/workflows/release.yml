@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   release:
@@ -70,13 +71,22 @@ jobs:
           NEXT="${major}.$((minor + 1)).0-SNAPSHOT"
           echo "NEXT_VERSION=$NEXT" >> "$GITHUB_OUTPUT"
 
-      - name: Bump main to next SNAPSHOT
+      - name: Bump main to next SNAPSHOT via PR
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          BRANCH="chore/bump-${{ steps.next.outputs.NEXT_VERSION }}"
           git checkout main
           git pull origin main
+          git checkout -b "$BRANCH"
           mvn versions:set -DnewVersion=${{ steps.next.outputs.NEXT_VERSION }} --batch-mode --no-transfer-progress
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add pom.xml bom-migrate-core/pom.xml bom-migrate-cli/pom.xml
-          git commit -m "chore: bump version to ${{ steps.next.outputs.NEXT_VERSION }} [skip ci]"
-          git push origin main
+          git commit -m "chore: bump version to ${{ steps.next.outputs.NEXT_VERSION }}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore: bump version to ${{ steps.next.outputs.NEXT_VERSION }}" \
+            --body "Automated post-release version bump from v${{ steps.version.outputs.VERSION }}."
