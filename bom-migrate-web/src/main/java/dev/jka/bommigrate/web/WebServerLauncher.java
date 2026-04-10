@@ -2,6 +2,7 @@ package dev.jka.bommigrate.web;
 
 import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.DiscoveryReport;
+import dev.jka.bommigrate.core.discovery.ScanMetadata;
 import dev.jka.bommigrate.web.service.DiscoverySessionService;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -35,6 +36,7 @@ public final class WebServerLauncher {
      */
     public static ConfigurableApplicationContext start(
             DiscoveryReport report,
+            ScanMetadata scanMetadata,
             List<BomModule> initialModules,
             int requestedPort,
             Path outputDir,
@@ -50,6 +52,7 @@ public final class WebServerLauncher {
 
         DiscoverySessionService session = context.getBean(DiscoverySessionService.class);
         session.setReport(report);
+        session.setScanMetadata(scanMetadata);
         session.setModules(initialModules);
         session.setOutputDir(outputDir);
         session.setParentCoordinates(parentGroupId, parentArtifactId, parentVersion);

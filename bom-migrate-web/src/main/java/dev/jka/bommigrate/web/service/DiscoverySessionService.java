@@ -4,6 +4,7 @@ import dev.jka.bommigrate.core.discovery.BomGenerationPlan;
 import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.BomModuleAssignment;
 import dev.jka.bommigrate.core.discovery.DiscoveryReport;
+import dev.jka.bommigrate.core.discovery.ScanMetadata;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -19,6 +20,7 @@ import java.util.List;
 public class DiscoverySessionService {
 
     private DiscoveryReport report;
+    private ScanMetadata scanMetadata = ScanMetadata.empty();
     private List<BomModule> modules = new ArrayList<>();
     private List<BomModuleAssignment> assignments = new ArrayList<>();
     private Path outputDir;
@@ -32,6 +34,14 @@ public class DiscoverySessionService {
 
     public synchronized void setReport(DiscoveryReport report) {
         this.report = report;
+    }
+
+    public synchronized ScanMetadata getScanMetadata() {
+        return scanMetadata;
+    }
+
+    public synchronized void setScanMetadata(ScanMetadata scanMetadata) {
+        this.scanMetadata = scanMetadata != null ? scanMetadata : ScanMetadata.empty();
     }
 
     public synchronized List<BomModule> getModules() {
