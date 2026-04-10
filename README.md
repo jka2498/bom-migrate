@@ -119,6 +119,7 @@ The core module is usable as a standalone library for programmatic integration.
 
 ## V1 Limitations
 
+- **Parent POM inheritance of managed dependencies** — If a microservice POM inherits `<dependencyManagement>` entries from its `<parent>` (not via a BOM import but through direct parent POM inheritance), the tool does not resolve the parent chain to discover those managed versions. It only resolves properties inherited from the parent for version comparison. A dependency managed solely through parent inheritance will be classified as SKIP ("not managed by BOM") rather than being matched. Workaround: pass the parent POM as an additional `--bom` input if it also acts as a dependency manager.
 - Operates on local file paths only (no remote repo cloning)
 - Remote BOM imports (by GAV coordinates not on filesystem) are skipped with a warning
 - Gradle projects are not supported
