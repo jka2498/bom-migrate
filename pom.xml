@@ -27,8 +27,8 @@
         <picocli.version>4.7.7</picocli.version>
         <github-api.version>1.330</github-api.version>
         <jgit.version>7.1.0.202411261347-r</jgit.version>
-        <spring-boot.version>3.4.4</spring-boot.version>
-        <!-- Override Spring Boot 3.4.4's default Tomcat (10.1.x) with 11.0.14 -->
+        <spring-boot.version>3.5.6</spring-boot.version>
+        <!-- Explicit pin: Spring Boot 3.5.x ships Tomcat 11 by default, but we lock to 11.0.14 for reproducibility -->
         <tomcat.version>11.0.14</tomcat.version>
         <junit.version>6.0.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
