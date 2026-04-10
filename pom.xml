@@ -28,8 +28,8 @@
         <github-api.version>1.330</github-api.version>
         <jgit.version>7.1.0.202411261347-r</jgit.version>
         <spring-boot.version>3.5.6</spring-boot.version>
-        <!-- Explicit pin: Spring Boot 3.5.x ships Tomcat 11 by default, but we lock to 11.0.14 for reproducibility -->
-        <tomcat.version>11.0.14</tomcat.version>
+        <!-- Pin Tomcat to 10.1.53 (Jakarta Servlet 6.0 line) -->
+        <tomcat.version>10.1.53</tomcat.version>
         <junit.version>6.0.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
 
