@@ -1,4 +1,6 @@
-target/
+# Maven build output (only at module roots, not test fixture dirs)
+**/target/
+!**/src/**/target/
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup
