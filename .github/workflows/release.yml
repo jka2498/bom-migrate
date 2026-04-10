@@ -73,9 +73,10 @@ jobs:
 
       - name: Bump main to next SNAPSHOT via PR
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
           BRANCH="chore/bump-${{ steps.next.outputs.NEXT_VERSION }}"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git checkout main
           git pull origin main
           git push origin --delete "$BRANCH" 2>/dev/null || true
