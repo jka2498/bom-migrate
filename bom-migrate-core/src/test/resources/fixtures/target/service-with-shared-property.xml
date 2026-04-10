@@ -5,31 +5,37 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.example</groupId>
-    <artifactId>property-service</artifactId>
+    <artifactId>shared-property-service</artifactId>
     <version>1.0.0-SNAPSHOT</version>
 
     <properties>
-        <jackson.version>2.15.0</jackson.version>
+        <guava.version>33.0.0-jre</guava.version>
+        <slf4j.version>2.0.9</slf4j.version>
     </properties>
 
     <dependencies>
-        <!-- Should be STRIP — resolves to 33.0.0-jre, matches BOM -->
+        <!-- STRIP — version matches BOM -->
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
+            <version>${guava.version}</version>
         </dependency>
 
-        <!-- Should be STRIP — resolves to 2.0.9, matches BOM -->
+        <!-- STRIP — version matches BOM -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
-        </dependency>
-
-        <!-- Should be FLAG — resolves to 2.15.0, BOM has 2.16.0 -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>${jackson.version}</version>
+            <version>${slf4j.version}</version>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>com.example</groupId>
+                <artifactId>some-plugin</artifactId>
+                <version>${guava.version}</version>
+            </plugin>
+        </plugins>
+    </build>
 </project>
