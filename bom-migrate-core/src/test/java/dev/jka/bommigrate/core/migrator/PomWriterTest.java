@@ -78,6 +78,38 @@ class PomWriterTest {
     }
 
     @Test
+    void applyStripsRemovesOrphanedProperties() throws IOException {
+        Path targetPom = Path.of("src/test/resources/fixtures/target/service-with-property-versions.xml");
+        MigrationReport report = analyzer.analyze(targetPom, simpleBomMap);
+        String modified = writer.applyStrips(targetPom, report);
+
+        // guava.version and slf4j.version should be removed (only used in stripped versions)
+        assertThat(modified).doesNotContain("<guava.version>");
+        assertThat(modified).doesNotContain("<slf4j.version>");
+
+        // jackson.version should remain (still used by the FLAG'd dependency)
+        assertThat(modified).contains("<jackson.version>");
+    }
+
+    @Test
+    void applyStripsKeepsSharedProperties() throws IOException {
+        Path targetPom = Path.of("src/test/resources/fixtures/target/service-with-shared-property.xml");
+        Path expectedPom = Path.of("src/test/resources/fixtures/expected/service-with-shared-property-migrated.xml");
+
+        MigrationReport report = analyzer.analyze(targetPom, simpleBomMap);
+        String modified = writer.applyStrips(targetPom, report);
+
+        String expected = Files.readString(expectedPom);
+        assertThat(modified).isEqualTo(expected);
+
+        // guava.version still used by a plugin — must be kept
+        assertThat(modified).contains("<guava.version>");
+
+        // slf4j.version only used in the stripped dependency — must be removed
+        assertThat(modified).doesNotContain("<slf4j.version>");
+    }
+
+    @Test
     void generateDiffShowsRemovedLines() throws IOException {
         Path targetPom = Path.of("src/test/resources/fixtures/target/simple-service-pom.xml");
         MigrationReport report = analyzer.analyze(targetPom, simpleBomMap);

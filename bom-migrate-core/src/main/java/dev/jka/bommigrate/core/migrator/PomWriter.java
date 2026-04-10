@@ -11,15 +11,22 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Applies STRIP changes from a migration report to the POM file by removing
  * {@code <version>} lines while preserving all other formatting.
  */
 public final class PomWriter {
+
+    private static final Pattern PROPERTY_REF = Pattern.compile("\\$\\{(.+?)}");
+    private static final Pattern PROPERTY_LINE = Pattern.compile("^\\s*<(.+?)>.*?</\\1>\\s*$");
 
     private final VersionLineLocator locator = new VersionLineLocator();
 
@@ -62,11 +69,27 @@ public final class PomWriter {
             }
         }
 
-        // Remove lines in reverse order to preserve indices
+        // Collect property names used in the version lines being removed
+        Set<String> candidateProperties = new HashSet<>();
+        for (int lineIndex : linesToRemove) {
+            if (lineIndex >= 0 && lineIndex < lines.size()) {
+                Matcher propMatcher = PROPERTY_REF.matcher(lines.get(lineIndex));
+                while (propMatcher.find()) {
+                    candidateProperties.add(propMatcher.group(1));
+                }
+            }
+        }
+
+        // Remove version lines in reverse order to preserve indices
         for (int lineIndex : linesToRemove) {
             if (lineIndex >= 0 && lineIndex < lines.size()) {
                 lines.remove(lineIndex);
             }
+        }
+
+        // Remove orphaned properties — only if not referenced anywhere else in the POM
+        if (!candidateProperties.isEmpty()) {
+            removeOrphanedProperties(lines, candidateProperties);
         }
 
         // Reconstruct with original line ending style
@@ -84,6 +107,61 @@ public final class PomWriter {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Removes property definitions from the {@code <properties>} block if
+     * they are no longer referenced anywhere in the POM content.
+     */
+    private void removeOrphanedProperties(List<String> lines, Set<String> candidateProperties) {
+        // Find the <properties> section boundaries
+        int propsStart = -1;
+        int propsEnd = -1;
+        for (int i = 0; i < lines.size(); i++) {
+            String trimmed = lines.get(i).trim();
+            if (trimmed.equals("<properties>") || trimmed.startsWith("<properties ")) {
+                propsStart = i;
+            } else if (trimmed.equals("</properties>") && propsStart >= 0) {
+                propsEnd = i;
+                break;
+            }
+        }
+
+        if (propsStart < 0 || propsEnd < 0) {
+            return;
+        }
+
+        // Build the full POM text WITHOUT the properties section, to check references
+        StringBuilder pomWithoutProps = new StringBuilder();
+        for (int i = 0; i < lines.size(); i++) {
+            if (i < propsStart || i > propsEnd) {
+                pomWithoutProps.append(lines.get(i)).append("\n");
+            }
+        }
+        String restOfPom = pomWithoutProps.toString();
+
+        // Find which candidate properties are truly orphaned
+        TreeSet<Integer> propertyLinesToRemove = new TreeSet<>(Comparator.reverseOrder());
+        for (String propName : candidateProperties) {
+            // Check if ${propName} appears anywhere outside the <properties> section
+            if (restOfPom.contains("${" + propName + "}")) {
+                continue; // Still referenced — keep it
+            }
+
+            // Find and mark the property line for removal
+            for (int i = propsStart + 1; i < propsEnd; i++) {
+                String trimmed = lines.get(i).trim();
+                if (trimmed.startsWith("<" + propName + ">") && trimmed.endsWith("</" + propName + ">")) {
+                    propertyLinesToRemove.add(i);
+                    break;
+                }
+            }
+        }
+
+        // Remove in reverse order
+        for (int lineIndex : propertyLinesToRemove) {
+            lines.remove(lineIndex);
+        }
     }
 
     /**
