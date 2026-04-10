@@ -4,6 +4,7 @@ import dev.jka.bommigrate.core.discovery.BomCandidate;
 import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.BomModuleAssignment;
 import dev.jka.bommigrate.core.discovery.DiscoveryReport;
+import dev.jka.bommigrate.core.discovery.ScanMetadata;
 import dev.jka.bommigrate.web.service.DiscoverySessionService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -69,5 +70,11 @@ public class DiscoveryController {
             return ResponseEntity.noContent().build();
         }
         return ResponseEntity.ok(report.candidates());
+    }
+
+    /** Returns the scan metadata (which sources were scanned, skipped, or failed). */
+    @GetMapping("/scan/metadata")
+    public ResponseEntity<ScanMetadata> getScanMetadata() {
+        return ResponseEntity.ok(session.getScanMetadata());
     }
 }

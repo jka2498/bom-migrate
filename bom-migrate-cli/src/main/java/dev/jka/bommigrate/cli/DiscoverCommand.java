@@ -5,6 +5,7 @@ import dev.jka.bommigrate.core.discovery.BomGenerator;
 import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.DependencyFrequencyAnalyser;
 import dev.jka.bommigrate.core.discovery.DiscoveryReport;
+import dev.jka.bommigrate.core.discovery.ScanMetadata;
 import dev.jka.bommigrate.github.ClonedRepo;
 import dev.jka.bommigrate.github.OrgScanResult;
 import dev.jka.bommigrate.github.OrgScanner;
@@ -119,27 +120,28 @@ public class DiscoverCommand implements Callable<Integer> {
     }
 
     private int execute() throws IOException {
-        // 1. Gather target POMs (local or from org)
-        List<Path> pomPaths;
+        // 1. Gather target POMs (local or from org) with metadata
+        ScanResult scan;
         if (targetSource.org != null) {
-            pomPaths = fetchFromOrg();
+            scan = fetchFromOrg();
         } else {
-            pomPaths = discoverLocalPoms();
+            scan = discoverLocalPoms();
         }
 
-        if (pomPaths.isEmpty()) {
+        if (scan.pomPaths.isEmpty()) {
             System.err.println("No target POM files found.");
             return 1;
         }
 
         // 2. Run discovery analysis
-        System.out.println("Analysing " + pomPaths.size() + " POM(s)...");
+        System.out.println("Analysing " + scan.pomPaths.size() + " POM(s)...");
         DependencyFrequencyAnalyser analyser = new DependencyFrequencyAnalyser();
-        DiscoveryReport report = analyser.analyse(pomPaths, minFrequency);
+        DiscoveryReport report = analyser.analyse(scan.pomPaths, minFrequency);
 
         DiscoveryReportFormatter formatter = new DiscoveryReportFormatter();
         System.out.println();
         System.out.println(formatter.formatSummary(report));
+        printScannedSources(scan.metadata);
 
         // 3. Determine BOM modules
         List<BomModule> modules = ModuleDefinitionWizard.parseModuleList(bomModules);
@@ -147,7 +149,7 @@ public class DiscoverCommand implements Callable<Integer> {
         // 4. Interactive review (web or CLI wizard)
         if (web) {
             try {
-                WebServerLauncher.start(report, modules, webPort, outputDir,
+                WebServerLauncher.start(report, scan.metadata, modules, webPort, outputDir,
                         bomGroupId, bomArtifactId, bomVersion);
                 System.out.println("Press Ctrl+C to stop the web server when done.");
                 // Block the main thread so the server stays up
@@ -188,7 +190,7 @@ public class DiscoverCommand implements Callable<Integer> {
         return 0;
     }
 
-    private List<Path> fetchFromOrg() throws IOException {
+    private ScanResult fetchFromOrg() throws IOException {
         String token = resolveGitHubToken();
         if (token == null || token.isBlank()) {
             throw new IOException("--org requires a GitHub token. Pass --github-token or set GITHUB_TOKEN env var.");
@@ -211,27 +213,74 @@ public class DiscoverCommand implements Callable<Integer> {
                 + ", failed: " + result.failedToClone().size());
 
         List<Path> pomFiles = new ArrayList<>();
+        List<String> scannedSources = new ArrayList<>();
         for (ClonedRepo repo : result.clonedRepos()) {
-            pomFiles.addAll(repo.pomPaths());
+            for (Path pomPath : repo.pomPaths()) {
+                pomFiles.add(pomPath);
+                // e.g. "my-repo: src/service-a/pom.xml"
+                Path relative = repo.clonePath().relativize(pomPath);
+                scannedSources.add(repo.repoName() + ": " + relative);
+            }
         }
-        return pomFiles;
+
+        List<ScanMetadata.FailedClone> failed = result.failedToClone().stream()
+                .map(f -> new ScanMetadata.FailedClone(f.repoName(), f.reason()))
+                .toList();
+
+        ScanMetadata metadata = new ScanMetadata(
+                scannedSources,
+                result.skippedByLanguage(),
+                result.skippedNoPom(),
+                failed
+        );
+
+        return new ScanResult(pomFiles, metadata);
     }
 
-    private List<Path> discoverLocalPoms() {
+    private ScanResult discoverLocalPoms() {
         List<Path> pomFiles = new ArrayList<>();
+        List<String> scannedSources = new ArrayList<>();
         for (Path target : targetSource.targetPaths) {
             if (Files.isRegularFile(target)) {
                 pomFiles.add(target);
+                scannedSources.add(target.toString());
             } else if (Files.isDirectory(target)) {
                 Path pom = target.resolve("pom.xml");
                 if (Files.exists(pom)) {
                     pomFiles.add(pom);
+                    scannedSources.add(pom.toString());
                 } else {
                     System.err.println("Warning: No pom.xml found in " + target);
                 }
             }
         }
-        return pomFiles;
+        return new ScanResult(pomFiles, ScanMetadata.localOnly(scannedSources));
+    }
+
+    private void printScannedSources(ScanMetadata metadata) {
+        System.out.println("Scanned sources: " + metadata.scannedSources().size());
+        for (String source : metadata.scannedSources()) {
+            System.out.println("  - " + source);
+        }
+        if (!metadata.skippedByLanguage().isEmpty()) {
+            System.out.println("Skipped by language filter: " + metadata.skippedByLanguage().size());
+            for (String repo : metadata.skippedByLanguage()) {
+                System.out.println("  - " + repo);
+            }
+        }
+        if (!metadata.skippedNoPom().isEmpty()) {
+            System.out.println("Skipped (no pom.xml): " + metadata.skippedNoPom().size());
+            for (String repo : metadata.skippedNoPom()) {
+                System.out.println("  - " + repo);
+            }
+        }
+        if (!metadata.failedClones().isEmpty()) {
+            System.out.println("Failed to clone: " + metadata.failedClones().size());
+            for (ScanMetadata.FailedClone failure : metadata.failedClones()) {
+                System.out.println("  - " + failure.repoName() + ": " + failure.reason());
+            }
+        }
+        System.out.println();
     }
 
     private String resolveGitHubToken() {
@@ -240,4 +289,7 @@ public class DiscoverCommand implements Callable<Integer> {
         }
         return System.getenv("GITHUB_TOKEN");
     }
+
+    /** Internal bundle of POM paths + scan metadata. */
+    private record ScanResult(List<Path> pomPaths, ScanMetadata metadata) {}
 }

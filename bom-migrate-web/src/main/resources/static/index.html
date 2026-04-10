@@ -13,6 +13,17 @@
     </header>
 
     <main>
+        <section id="sources-panel" class="panel">
+            <h2>Scanned Sources</h2>
+            <p class="panel-hint">These are the POM files that were analysed for this report.</p>
+            <div id="sources-summary"></div>
+            <details id="sources-details">
+                <summary>Show all scanned sources</summary>
+                <ul id="sources-list"></ul>
+            </details>
+            <div id="sources-warnings"></div>
+        </section>
+
         <section id="modules-panel" class="panel">
             <h2>BOM Modules</h2>
             <p>Define the modules to split your BOM into (leave empty for a single flat BOM).</p>

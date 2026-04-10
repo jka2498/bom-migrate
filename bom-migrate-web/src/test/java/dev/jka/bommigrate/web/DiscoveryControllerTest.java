@@ -6,6 +6,7 @@ import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.BomModuleAssignment;
 import dev.jka.bommigrate.core.discovery.ConflictSeverity;
 import dev.jka.bommigrate.core.discovery.DiscoveryReport;
+import dev.jka.bommigrate.core.discovery.ScanMetadata;
 import dev.jka.bommigrate.web.service.DiscoverySessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -97,5 +98,33 @@ class DiscoveryControllerTest {
                         .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accepted").value(1));
+    }
+
+    @Test
+    void getScanMetadataReturnsSources() throws Exception {
+        ScanMetadata metadata = new ScanMetadata(
+                List.of("my-repo: service-a/pom.xml", "my-repo: service-b/pom.xml"),
+                List.of("python-service", "terraform-repo"),
+                List.of("no-pom-repo"),
+                List.of(new ScanMetadata.FailedClone("private-repo", "403 forbidden"))
+        );
+        session.setScanMetadata(metadata);
+
+        mockMvc.perform(get("/api/scan/metadata"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scannedSources.length()").value(2))
+                .andExpect(jsonPath("$.scannedSources[0]").value("my-repo: service-a/pom.xml"))
+                .andExpect(jsonPath("$.skippedByLanguage[0]").value("python-service"))
+                .andExpect(jsonPath("$.skippedNoPom[0]").value("no-pom-repo"))
+                .andExpect(jsonPath("$.failedClones[0].repoName").value("private-repo"))
+                .andExpect(jsonPath("$.failedClones[0].reason").value("403 forbidden"));
+    }
+
+    @Test
+    void getScanMetadataReturnsEmptyWhenUnset() throws Exception {
+        session.setScanMetadata(null);
+        mockMvc.perform(get("/api/scan/metadata"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scannedSources.length()").value(0));
     }
 }

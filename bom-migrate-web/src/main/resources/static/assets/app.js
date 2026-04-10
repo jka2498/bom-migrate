@@ -11,6 +11,11 @@ const api = {
         if (res.status === 204) return null;
         return res.json();
     },
+    async getScanMetadata() {
+        const res = await fetch("/api/scan/metadata");
+        if (res.status === 204) return null;
+        return res.json();
+    },
     async getModules() { return (await fetch("/api/modules")).json(); },
     async setModules(modules) {
         const res = await fetch("/api/modules", {
@@ -36,11 +41,71 @@ const api = {
 
 const state = {
     report: null,
+    scanMetadata: null,
     modules: [],
     selections: new Map() // key -> { included, version, moduleName }
 };
 
 function $(id) { return document.getElementById(id); }
+
+function renderScanMetadata() {
+    const summary = $("sources-summary");
+    const list = $("sources-list");
+    const warnings = $("sources-warnings");
+    list.innerHTML = "";
+    warnings.innerHTML = "";
+
+    const meta = state.scanMetadata;
+    if (!meta) {
+        summary.textContent = "No scan metadata available.";
+        return;
+    }
+
+    const scanned = meta.scannedSources || [];
+    const skippedLang = meta.skippedByLanguage || [];
+    const skippedNoPom = meta.skippedNoPom || [];
+    const failed = meta.failedClones || [];
+
+    const parts = [`${scanned.length} POM file${scanned.length === 1 ? "" : "s"} analysed`];
+    if (skippedLang.length > 0) parts.push(`${skippedLang.length} repo(s) skipped by language filter`);
+    if (skippedNoPom.length > 0) parts.push(`${skippedNoPom.length} repo(s) had no pom.xml`);
+    if (failed.length > 0) parts.push(`${failed.length} repo(s) failed to clone`);
+    summary.textContent = parts.join(" · ");
+
+    scanned.forEach(source => {
+        const li = document.createElement("li");
+        li.textContent = source;
+        list.appendChild(li);
+    });
+
+    const warningSections = [];
+    if (skippedLang.length > 0) {
+        warningSections.push(buildWarningSection("Skipped (not JVM primary language)", skippedLang));
+    }
+    if (skippedNoPom.length > 0) {
+        warningSections.push(buildWarningSection("Skipped (no pom.xml found)", skippedNoPom));
+    }
+    if (failed.length > 0) {
+        const items = failed.map(f => `${f.repoName}: ${f.reason}`);
+        warningSections.push(buildWarningSection("Failed to clone", items));
+    }
+    warningSections.forEach(section => warnings.appendChild(section));
+}
+
+function buildWarningSection(title, items) {
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = `${title} (${items.length})`;
+    details.appendChild(summary);
+    const ul = document.createElement("ul");
+    items.forEach(item => {
+        const li = document.createElement("li");
+        li.textContent = item;
+        ul.appendChild(li);
+    });
+    details.appendChild(ul);
+    return details;
+}
 
 function renderModules() {
     const list = $("module-list");
@@ -114,10 +179,12 @@ function renderModuleSelect(currentName) {
 
 async function init() {
     state.report = await api.getReport();
+    state.scanMetadata = await api.getScanMetadata();
     state.modules = await api.getModules();
     if (state.modules.length === 0) {
         state.modules = [{ name: "default" }];
     }
+    renderScanMetadata();
     renderModules();
     renderCandidates();
 }
