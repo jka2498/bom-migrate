@@ -1,8 +1,12 @@
 // Minimal bom-migrate web UI.
-// Fetches discovery report from /api, lets user include/exclude candidates,
-// assign them to modules, confirm versions, and generate the BOM.
+// Flow:
+//   1. User picks pom.xml files via the native file picker, uploads, backend scans
+//   2. User reviews candidates and defines modules
+//   3. User clicks Generate BOM
+//   4. UI fetches the migration preview and shows the import snippet + per-service
+//      modified POMs (copy-paste only, never writes back to disk).
 //
-// This is a hand-written vanilla JS SPA, meant to be rebuildable into a proper
+// Hand-written vanilla JS SPA, meant to be rebuildable into a proper
 // React+Vite app later. No external runtime dependencies.
 
 const api = {
@@ -14,6 +18,13 @@ const api = {
     async getScanMetadata() {
         const res = await fetch("/api/scan/metadata");
         if (res.status === 204) return null;
+        return res.json();
+    },
+    async uploadPoms(files) {
+        const form = new FormData();
+        for (const f of files) form.append("files", f, f.name);
+        const res = await fetch("/api/scan/upload", { method: "POST", body: form });
+        if (!res.ok) throw new Error("Upload failed: " + res.status);
         return res.json();
     },
     async getModules() { return (await fetch("/api/modules")).json(); },
@@ -40,6 +51,12 @@ const api = {
             body: JSON.stringify({ versionFormat })
         });
         return res.json();
+    },
+    async getMigrationPreview() {
+        const res = await fetch("/api/migration/preview");
+        if (res.status === 412) return null;
+        if (!res.ok) throw new Error("Migration preview failed: " + res.status);
+        return res.json();
     }
 };
 
@@ -47,10 +64,86 @@ const state = {
     report: null,
     scanMetadata: null,
     modules: [],
-    selections: new Map() // key -> { included, version, moduleName }
+    selections: new Map(), // key -> { included, version, moduleName }
+    pendingFiles: []       // File objects selected but not yet uploaded
 };
 
 function $(id) { return document.getElementById(id); }
+
+/* ---------- copy-to-clipboard ---------- */
+
+async function copyToClipboard(text, button) {
+    try {
+        await navigator.clipboard.writeText(text);
+        const original = button.textContent;
+        button.textContent = "Copied!";
+        button.classList.add("copied");
+        setTimeout(() => {
+            button.textContent = original;
+            button.classList.remove("copied");
+        }, 1500);
+    } catch (err) {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+        document.body.removeChild(ta);
+        button.textContent = "Copied!";
+        setTimeout(() => { button.textContent = "Copy"; }, 1500);
+    }
+}
+
+/* ---------- upload panel ---------- */
+
+function renderPendingFiles() {
+    const list = $("selected-files-list");
+    list.innerHTML = "";
+    state.pendingFiles.forEach(f => {
+        const li = document.createElement("li");
+        li.textContent = f.name;
+        list.appendChild(li);
+    });
+    const count = state.pendingFiles.length;
+    $("file-count").textContent = count === 0
+        ? "No files selected"
+        : `${count} file${count === 1 ? "" : "s"} selected`;
+    $("upload-btn").disabled = count === 0;
+}
+
+$("pom-file-input").addEventListener("change", (e) => {
+    state.pendingFiles = Array.from(e.target.files || []);
+    renderPendingFiles();
+});
+
+$("upload-btn").addEventListener("click", async () => {
+    if (state.pendingFiles.length === 0) return;
+    const btn = $("upload-btn");
+    btn.disabled = true;
+    btn.textContent = "Scanning...";
+    try {
+        state.report = await api.uploadPoms(state.pendingFiles);
+        state.scanMetadata = await api.getScanMetadata();
+        state.pendingFiles = [];
+        $("pom-file-input").value = "";
+        renderPendingFiles();
+        renderScanMetadata();
+        renderCandidates();
+        // Hide any stale result panels since the report changed
+        $("result-panel").classList.add("hidden");
+        $("import-snippet-panel").classList.add("hidden");
+        $("migration-panel").classList.add("hidden");
+    } catch (err) {
+        alert(err.message);
+    } finally {
+        btn.textContent = "Scan selected POMs";
+        btn.disabled = state.pendingFiles.length === 0;
+    }
+});
+
+/* ---------- scan metadata panel ---------- */
 
 function renderScanMetadata() {
     const summary = $("sources-summary");
@@ -61,7 +154,7 @@ function renderScanMetadata() {
 
     const meta = state.scanMetadata;
     if (!meta) {
-        summary.textContent = "No scan metadata available.";
+        summary.textContent = "No sources scanned yet.";
         return;
     }
 
@@ -69,6 +162,11 @@ function renderScanMetadata() {
     const skippedLang = meta.skippedByLanguage || [];
     const skippedNoPom = meta.skippedNoPom || [];
     const failed = meta.failedClones || [];
+
+    if (scanned.length === 0 && skippedLang.length === 0 && skippedNoPom.length === 0 && failed.length === 0) {
+        summary.textContent = "No sources scanned yet.";
+        return;
+    }
 
     const parts = [`${scanned.length} POM file${scanned.length === 1 ? "" : "s"} analysed`];
     if (skippedLang.length > 0) parts.push(`${skippedLang.length} repo(s) skipped by language filter`);
@@ -111,6 +209,8 @@ function buildWarningSection(title, items) {
     return details;
 }
 
+/* ---------- modules panel ---------- */
+
 function renderModules() {
     const list = $("module-list");
     list.innerHTML = "";
@@ -121,10 +221,27 @@ function renderModules() {
         chip.querySelector("button").addEventListener("click", () => {
             state.modules.splice(idx, 1);
             renderModules();
+            renderCandidates();
         });
         list.appendChild(chip);
     });
 }
+
+$("add-module-btn").addEventListener("click", () => {
+    const name = $("new-module-name").value.trim();
+    if (!name) return;
+    state.modules.push({ name });
+    $("new-module-name").value = "";
+    renderModules();
+    renderCandidates();
+});
+
+$("save-modules-btn").addEventListener("click", async () => {
+    await api.setModules(state.modules);
+    alert("Modules saved.");
+});
+
+/* ---------- candidates table ---------- */
 
 function renderCandidates() {
     const tbody = $("candidate-tbody");
@@ -181,61 +298,12 @@ function renderModuleSelect(currentName) {
     return `<select>${options}</select>`;
 }
 
-async function init() {
-    state.report = await api.getReport();
-    state.scanMetadata = await api.getScanMetadata();
-    state.modules = await api.getModules();
-    if (state.modules.length === 0) {
-        state.modules = [{ name: "default" }];
-    }
-    renderScanMetadata();
-    renderModules();
-    renderCandidates();
-}
-
-$("add-module-btn").addEventListener("click", () => {
-    const name = $("new-module-name").value.trim();
-    if (!name) return;
-    state.modules.push({ name });
-    $("new-module-name").value = "";
-    renderModules();
-    renderCandidates();
-});
-
-$("save-modules-btn").addEventListener("click", async () => {
-    await api.setModules(state.modules);
-    alert("Modules saved.");
-});
-
 function selectedVersionFormat() {
     const checked = document.querySelector('input[name="version-format"]:checked');
     return checked ? checked.value : "INLINE";
 }
 
-async function copyToClipboard(text, button) {
-    try {
-        await navigator.clipboard.writeText(text);
-        const original = button.textContent;
-        button.textContent = "Copied!";
-        button.classList.add("copied");
-        setTimeout(() => {
-            button.textContent = original;
-            button.classList.remove("copied");
-        }, 1500);
-    } catch (err) {
-        // Fallback: create a temporary textarea and use document.execCommand
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        try { document.execCommand("copy"); } catch (e) { /* ignore */ }
-        document.body.removeChild(ta);
-        button.textContent = "Copied!";
-        setTimeout(() => { button.textContent = "Copy"; }, 1500);
-    }
-}
+/* ---------- generated BOM + import snippet + migration preview ---------- */
 
 function renderGeneratedFile(path, content) {
     const wrapper = document.createElement("div");
@@ -264,7 +332,71 @@ function renderGeneratedFile(path, content) {
     return wrapper;
 }
 
+function renderImportSnippet(snippet) {
+    const container = $("import-snippet-container");
+    container.innerHTML = "";
+    container.appendChild(renderGeneratedFile("Add to your service's pom.xml", snippet));
+}
+
+function renderMigrationPreview(preview) {
+    const summary = $("migration-summary");
+    const output = $("migration-output");
+    output.innerHTML = "";
+
+    const services = preview.services || [];
+    if (services.length === 0) {
+        summary.textContent = "No services were scanned. Upload POM files to see the migration preview.";
+        return;
+    }
+
+    const totalStrips = services.reduce((a, s) => a + s.stripCount, 0);
+    const totalFlags = services.reduce((a, s) => a + s.flagCount, 0);
+    summary.textContent = `${services.length} service${services.length === 1 ? "" : "s"} · ${totalStrips} version tag${totalStrips === 1 ? "" : "s"} would be stripped · ${totalFlags} flagged for review`;
+
+    services.forEach(svc => {
+        const details = document.createElement("details");
+        details.className = "service-preview";
+
+        const dsum = document.createElement("summary");
+        dsum.innerHTML = `
+            <strong>${svc.displayName}</strong>
+            <span class="counts">
+                <span class="count count-strip">${svc.stripCount} strip</span>
+                <span class="count count-flag">${svc.flagCount} flag</span>
+                <span class="count count-skip">${svc.skipCount} skip</span>
+            </span>
+        `;
+        details.appendChild(dsum);
+
+        if (svc.flagged && svc.flagged.length > 0) {
+            const flaggedBox = document.createElement("div");
+            flaggedBox.className = "flagged-list";
+            const fh = document.createElement("h4");
+            fh.textContent = "Flagged (manual review needed)";
+            flaggedBox.appendChild(fh);
+            const ul = document.createElement("ul");
+            svc.flagged.forEach(f => {
+                const li = document.createElement("li");
+                li.innerHTML = `<code>${f.groupId}:${f.artifactId}</code> — service has <code>${f.serviceVersion}</code>, BOM has <code>${f.bomVersion || "?"}</code>`;
+                ul.appendChild(li);
+            });
+            flaggedBox.appendChild(ul);
+            details.appendChild(flaggedBox);
+        }
+
+        details.appendChild(renderGeneratedFile("Modified pom.xml", svc.modifiedContent));
+        output.appendChild(details);
+    });
+}
+
+/* ---------- generate button ---------- */
+
 $("generate-btn").addEventListener("click", async () => {
+    if (!state.report || state.report.candidates.length === 0) {
+        alert("Nothing to generate — scan some POMs first.");
+        return;
+    }
+
     // Build assignments from selections
     const assignments = [];
     for (const c of state.report.candidates) {
@@ -283,6 +415,7 @@ $("generate-btn").addEventListener("click", async () => {
     await api.confirm(assignments);
     const result = await api.generate(selectedVersionFormat());
 
+    // Generated BOM files
     $("result-panel").classList.remove("hidden");
     $("result-output").innerHTML = "";
     if (result.written && result.written.length > 0) {
@@ -293,9 +426,39 @@ $("generate-btn").addEventListener("click", async () => {
     Object.entries(result.files).forEach(([path, content]) => {
         $("result-output").appendChild(renderGeneratedFile(path, content));
     });
+
+    // Fetch and render the migration preview (uses the just-generated BOM)
+    try {
+        const preview = await api.getMigrationPreview();
+        if (preview) {
+            $("import-snippet-panel").classList.remove("hidden");
+            $("migration-panel").classList.remove("hidden");
+            renderImportSnippet(preview.bomImportSnippet);
+            renderMigrationPreview(preview);
+        }
+    } catch (err) {
+        console.error(err);
+    }
 });
 
-init().catch(err => {
-    console.error(err);
-    alert("Failed to load discovery report: " + err.message);
-});
+/* ---------- init ---------- */
+
+async function init() {
+    try {
+        state.report = await api.getReport();
+        state.scanMetadata = await api.getScanMetadata();
+        state.modules = await api.getModules();
+        if (state.modules.length === 0) {
+            state.modules = [{ name: "default" }];
+        }
+        renderScanMetadata();
+        renderModules();
+        renderCandidates();
+        renderPendingFiles();
+    } catch (err) {
+        console.error(err);
+        alert("Failed to load session state: " + err.message);
+    }
+}
+
+init();

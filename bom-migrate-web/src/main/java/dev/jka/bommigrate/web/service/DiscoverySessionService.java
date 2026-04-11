@@ -20,8 +20,9 @@ import java.util.List;
 @Component
 public class DiscoverySessionService {
 
-    private DiscoveryReport report;
+    private DiscoveryReport report = DiscoveryReport.empty();
     private ScanMetadata scanMetadata = ScanMetadata.empty();
+    private List<Path> scannedPomPaths = new ArrayList<>();
     private List<BomModule> modules = new ArrayList<>();
     private List<BomModuleAssignment> assignments = new ArrayList<>();
     private Path outputDir;
@@ -44,6 +45,26 @@ public class DiscoverySessionService {
 
     public synchronized void setScanMetadata(ScanMetadata scanMetadata) {
         this.scanMetadata = scanMetadata != null ? scanMetadata : ScanMetadata.empty();
+    }
+
+    public synchronized List<Path> getScannedPomPaths() {
+        return new ArrayList<>(scannedPomPaths);
+    }
+
+    public synchronized void setScannedPomPaths(List<Path> scannedPomPaths) {
+        this.scannedPomPaths = scannedPomPaths != null ? new ArrayList<>(scannedPomPaths) : new ArrayList<>();
+    }
+
+    public synchronized String getParentGroupId() {
+        return parentGroupId;
+    }
+
+    public synchronized String getParentArtifactId() {
+        return parentArtifactId;
+    }
+
+    public synchronized String getParentVersion() {
+        return parentVersion;
     }
 
     public synchronized List<BomModule> getModules() {
