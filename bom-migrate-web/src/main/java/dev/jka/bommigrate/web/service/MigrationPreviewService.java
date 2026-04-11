@@ -2,6 +2,7 @@ package dev.jka.bommigrate.web.service;
 
 import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.ScanMetadata;
+import dev.jka.bommigrate.core.discovery.VersionFormat;
 import dev.jka.bommigrate.core.migrator.BomImportInserter;
 import dev.jka.bommigrate.core.migrator.PomAnalyzer;
 import dev.jka.bommigrate.core.migrator.PomDiff;
@@ -22,7 +23,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Composes the core APIs to produce the web UI's migration preview:
@@ -56,6 +59,7 @@ public class MigrationPreviewService {
         DependencyManagementMap bomMap = bomResolver.resolve(outputDir, true);
 
         List<BomImportInserter.BomImport> imports = buildBomImports();
+        Map<String, String> bomImportProperties = buildBomImportProperties();
 
         List<Path> servicePoms = session.getScannedPomPaths();
         ScanMetadata metadata = session.getScanMetadata();
@@ -70,7 +74,7 @@ public class MigrationPreviewService {
 
             MigrationReport report = pomAnalyzer.analyze(pom, bomMap);
             String stripped = pomWriter.applyStrips(pom, report);
-            String finalContent = bomImportInserter.insertImports(stripped, imports);
+            String finalContent = bomImportInserter.insertImports(stripped, imports, bomImportProperties);
 
             PomDiff diff = PomDiff.between(originalContent, finalContent);
             List<DiffLine> diffLines = diff.lines().stream()
@@ -99,7 +103,7 @@ public class MigrationPreviewService {
             ));
         }
 
-        String snippet = buildBomImportSnippet(imports);
+        String snippet = buildBomImportSnippet(imports, bomImportProperties);
         return new MigrationPreviewResponse(snippet, services);
     }
 
@@ -107,33 +111,82 @@ public class MigrationPreviewService {
      * Builds the list of BOM imports to insert. For single-module plans this is
      * the parent BOM. For multi-module plans it's one entry per child module
      * (the aggregator parent itself is not importable — it's a build aggregator).
+     *
+     * <p>When the session's {@link VersionFormat} is {@code PROPERTIES}, each
+     * import's version string is a property reference (e.g.
+     * {@code ${backend-core.version}}) instead of a literal, and the matching
+     * properties are produced by {@link #buildBomImportProperties()}.
      */
     private List<BomImportInserter.BomImport> buildBomImports() {
         List<BomModule> modules = session.getModules();
         String groupId = session.getParentGroupId();
         String version = session.getParentVersion();
+        boolean useProperties = session.getVersionFormat() == VersionFormat.PROPERTIES;
 
         // Single-module: import the flat BOM directly
         if (modules == null || modules.size() <= 1) {
-            return List.of(new BomImportInserter.BomImport(
-                    groupId, session.getParentArtifactId(), version));
+            String artifactId = session.getParentArtifactId();
+            String versionValue = useProperties ? "${" + artifactId + ".version}" : version;
+            return List.of(new BomImportInserter.BomImport(groupId, artifactId, versionValue));
         }
 
         // Multi-module: import each child module (artifactId == module name, no prefix)
         List<BomImportInserter.BomImport> out = new ArrayList<>();
         for (BomModule module : modules) {
-            out.add(new BomImportInserter.BomImport(groupId, module.name(), version));
+            String versionValue = useProperties ? "${" + module.name() + ".version}" : version;
+            out.add(new BomImportInserter.BomImport(groupId, module.name(), versionValue));
         }
         return out;
     }
 
     /**
-     * Builds the copy-pasteable {@code <dependencyManagement>} snippet for
-     * the "Import this BOM" panel. Multi-module plans get one {@code <dependency>}
-     * per child BOM.
+     * Builds the {@code <properties>} map to merge into each service POM
+     * (and to prepend to the copy-pasteable snippet) when
+     * {@code VersionFormat.PROPERTIES} is in effect. Each child BOM gets a
+     * {@code <artifactId>.version} entry pointing at the parent BOM version;
+     * in a multi-module plan all entries share the same value.
+     *
+     * <p>Returns an empty map for {@code INLINE} format — the inserter then
+     * skips the properties step entirely.
      */
-    private String buildBomImportSnippet(List<BomImportInserter.BomImport> imports) {
+    private Map<String, String> buildBomImportProperties() {
+        if (session.getVersionFormat() != VersionFormat.PROPERTIES) {
+            return Map.of();
+        }
+
+        String version = session.getParentVersion();
+        List<BomModule> modules = session.getModules();
+
+        Map<String, String> props = new LinkedHashMap<>();
+        if (modules == null || modules.size() <= 1) {
+            props.put(session.getParentArtifactId() + ".version", version);
+        } else {
+            for (BomModule module : modules) {
+                props.put(module.name() + ".version", version);
+            }
+        }
+        return props;
+    }
+
+    /**
+     * Builds the copy-pasteable snippet for the "Import this BOM" panel. When
+     * {@code propertiesToAdd} is non-empty the snippet starts with a
+     * {@code <properties>} block using the same keys that the inserter will
+     * merge into each service POM, followed by the
+     * {@code <dependencyManagement>} block.
+     */
+    private String buildBomImportSnippet(List<BomImportInserter.BomImport> imports,
+                                          Map<String, String> propertiesToAdd) {
         StringBuilder sb = new StringBuilder();
+        if (propertiesToAdd != null && !propertiesToAdd.isEmpty()) {
+            sb.append("<properties>\n");
+            for (Map.Entry<String, String> entry : propertiesToAdd.entrySet()) {
+                sb.append("    <").append(entry.getKey()).append(">")
+                        .append(entry.getValue())
+                        .append("</").append(entry.getKey()).append(">\n");
+            }
+            sb.append("</properties>\n");
+        }
         sb.append("<dependencyManagement>\n");
         sb.append("    <dependencies>\n");
         for (BomImportInserter.BomImport imp : imports) {
