@@ -20,9 +20,14 @@ const api = {
         if (res.status === 204) return null;
         return res.json();
     },
-    async uploadPoms(files) {
+    async uploadPoms(entries) {
+        // entries: [{ file, path }, ...]  — `path` is the display/relative path
+        // (webkitRelativePath for folder-picked files, file.name for individual-picked files)
         const form = new FormData();
-        for (const f of files) form.append("files", f, f.name);
+        for (const e of entries) {
+            form.append("files", e.file, e.file.name);
+            form.append("paths", e.path);
+        }
         const res = await fetch("/api/scan/upload", { method: "POST", body: form });
         if (!res.ok) throw new Error("Upload failed: " + res.status);
         return res.json();
@@ -54,9 +59,11 @@ const api = {
     },
     async getMigrationPreview() {
         const res = await fetch("/api/migration/preview");
-        if (res.status === 412) return null;
+        if (res.status === 412) return { status: "not-generated" };
+        if (res.status === 409) return { status: "stale" };
         if (!res.ok) throw new Error("Migration preview failed: " + res.status);
-        return res.json();
+        const body = await res.json();
+        return { status: "ok", preview: body };
     },
     async getCoordinates() {
         const res = await fetch("/api/bom/coordinates");
@@ -77,7 +84,13 @@ const state = {
     scanMetadata: null,
     modules: [],
     selections: new Map(), // key -> { included, version, moduleName }
-    pendingFiles: []       // File objects selected but not yet uploaded
+    // Map of displayPath -> { file, path }. Displayed in the pending list,
+    // uploaded as (files[], paths[]) multipart pairs. Keyed by displayPath
+    // so picking the same file (or same folder) twice deduplicates.
+    pendingFiles: new Map(),
+    // True once the user has successfully generated a BOM. Used to decide
+    // whether to show the "stale" banner when they tweak settings afterwards.
+    generatedOnce: false
 };
 
 function $(id) { return document.getElementById(id); }
@@ -110,53 +123,150 @@ async function copyToClipboard(text, button) {
 
 /* ---------- upload panel ---------- */
 
+// Build the display/upload path for a File. Folder-picked files get their
+// webkitRelativePath (e.g. "my-project/service-a/pom.xml"). Individually
+// picked files only expose .name ("pom.xml"), so we append an index suffix
+// to disambiguate duplicates in the pending list.
+function buildDisplayPath(file, fallbackIndex) {
+    const rel = file.webkitRelativePath;
+    if (rel && rel.length > 0) return rel;
+    return file.name || ("pom-" + fallbackIndex + ".xml");
+}
+
+function addPendingFiles(files, { fromFolder }) {
+    let addedCount = 0;
+    let skippedNonPom = 0;
+    let i = 0;
+    for (const file of files) {
+        i++;
+        // A folder picker can return anything — filter to pom.xml only
+        // (case-insensitive, also matches "POM.xml" from weird file systems).
+        if (fromFolder) {
+            const base = (file.name || "").toLowerCase();
+            if (base !== "pom.xml") {
+                skippedNonPom++;
+                continue;
+            }
+        }
+
+        let path = buildDisplayPath(file, state.pendingFiles.size + i);
+        // De-dup within the current pending set. If the same relative path is
+        // already pending, skip it silently. For the individual-file picker we
+        // append " (2)", " (3)" suffixes to distinguish duplicates.
+        if (state.pendingFiles.has(path)) {
+            if (fromFolder) continue;
+            let suffix = 2;
+            let candidate = path + " (" + suffix + ")";
+            while (state.pendingFiles.has(candidate)) {
+                suffix++;
+                candidate = path + " (" + suffix + ")";
+            }
+            path = candidate;
+        }
+        state.pendingFiles.set(path, { file, path });
+        addedCount++;
+    }
+    return { addedCount, skippedNonPom };
+}
+
 function renderPendingFiles() {
     const list = $("selected-files-list");
     list.innerHTML = "";
-    state.pendingFiles.forEach(f => {
+    const entries = Array.from(state.pendingFiles.values());
+    entries.forEach(({ path }) => {
         const li = document.createElement("li");
-        li.textContent = f.name;
+        const label = document.createElement("span");
+        label.textContent = path;
+        li.appendChild(label);
+        const rm = document.createElement("button");
+        rm.type = "button";
+        rm.className = "file-remove";
+        rm.textContent = "×";
+        rm.title = "Remove";
+        rm.addEventListener("click", () => {
+            state.pendingFiles.delete(path);
+            renderPendingFiles();
+        });
+        li.appendChild(rm);
         list.appendChild(li);
     });
-    const count = state.pendingFiles.length;
+    const count = entries.length;
     $("file-count").textContent = count === 0
         ? "No files selected"
         : `${count} file${count === 1 ? "" : "s"} selected`;
     $("upload-btn").disabled = count === 0;
+    $("clear-files-btn").disabled = count === 0;
 }
 
 $("pom-file-input").addEventListener("change", (e) => {
-    state.pendingFiles = Array.from(e.target.files || []);
+    addPendingFiles(Array.from(e.target.files || []), { fromFolder: false });
+    // Reset the input so the user can re-pick the same file again later if they remove it.
+    e.target.value = "";
+    renderPendingFiles();
+});
+
+$("pom-folder-input").addEventListener("change", (e) => {
+    const picked = Array.from(e.target.files || []);
+    const { addedCount, skippedNonPom } = addPendingFiles(picked, { fromFolder: true });
+    e.target.value = "";
+    renderPendingFiles();
+    if (addedCount === 0 && skippedNonPom > 0) {
+        alert("No pom.xml files found in that folder.");
+    }
+});
+
+$("clear-files-btn").addEventListener("click", () => {
+    state.pendingFiles.clear();
     renderPendingFiles();
 });
 
 $("upload-btn").addEventListener("click", async () => {
-    if (state.pendingFiles.length === 0) return;
+    if (state.pendingFiles.size === 0) return;
     const btn = $("upload-btn");
     btn.disabled = true;
     btn.textContent = "Scanning...";
     try {
-        state.report = await api.uploadPoms(state.pendingFiles);
+        const entries = Array.from(state.pendingFiles.values());
+        state.report = await api.uploadPoms(entries);
         state.scanMetadata = await api.getScanMetadata();
-        state.pendingFiles = [];
-        $("pom-file-input").value = "";
+        state.pendingFiles.clear();
         renderPendingFiles();
         renderScanMetadata();
         renderCandidates();
         // After a fresh scan, re-fetch coordinates so any suggested groupId
         // from the newly-scanned POMs pre-fills the form.
         await loadCoordinates();
-        // Hide any stale result panels since the report changed
-        $("result-panel").classList.add("hidden");
-        $("import-snippet-panel").classList.add("hidden");
-        $("migration-panel").classList.add("hidden");
+        // Hide any stale result panels since the report changed; the backend
+        // also clears its lastGeneratedSignature on upload.
+        state.generatedOnce = false;
+        hideResultPanels();
+        hideStaleBanner();
     } catch (err) {
         alert(err.message);
     } finally {
         btn.textContent = "Scan selected POMs";
-        btn.disabled = state.pendingFiles.length === 0;
+        btn.disabled = state.pendingFiles.size === 0;
     }
 });
+
+function hideResultPanels() {
+    $("result-panel").classList.add("hidden");
+    $("import-snippet-panel").classList.add("hidden");
+    $("migration-panel").classList.add("hidden");
+}
+
+// Called whenever the user changes settings (coordinates, modules, assignments)
+// after a previous generation. Hides the stale result panels and shows a banner
+// telling them to click Generate BOM again.
+function markPreviewStale() {
+    if (!state.generatedOnce) return;
+    hideResultPanels();
+    $("stale-banner").classList.remove("hidden");
+}
+
+function hideStaleBanner() {
+    $("stale-banner").classList.add("hidden");
+}
 
 /* ---------- scan metadata panel ---------- */
 
@@ -237,6 +347,7 @@ function renderModules() {
             state.modules.splice(idx, 1);
             renderModules();
             renderCandidates();
+            markPreviewStale();
         });
         list.appendChild(chip);
     });
@@ -249,11 +360,13 @@ $("add-module-btn").addEventListener("click", () => {
     $("new-module-name").value = "";
     renderModules();
     renderCandidates();
+    markPreviewStale();
 });
 
 $("save-modules-btn").addEventListener("click", async () => {
     await api.setModules(state.modules);
     alert("Modules saved.");
+    markPreviewStale();
 });
 
 /* ---------- candidates table ---------- */
@@ -289,13 +402,18 @@ function renderCandidates() {
 
         tr.querySelector("input[type=checkbox]").addEventListener("change", e => {
             sel.included = e.target.checked;
+            markPreviewStale();
         });
         tr.querySelector("input[type=text]").addEventListener("change", e => {
             sel.version = e.target.value;
+            markPreviewStale();
         });
         const sel_el = tr.querySelector("select");
         if (sel_el) {
-            sel_el.addEventListener("change", e => { sel.moduleName = e.target.value; });
+            sel_el.addEventListener("change", e => {
+                sel.moduleName = e.target.value;
+                markPreviewStale();
+            });
         }
 
         tbody.appendChild(tr);
@@ -570,10 +688,14 @@ $("generate-btn").addEventListener("click", async () => {
         $("result-output").appendChild(renderGeneratedFile(path, content));
     });
 
-    // Fetch and render the migration preview (uses the just-generated BOM)
+    // Fetch and render the migration preview (uses the just-generated BOM).
+    // We just generated so the signature matches; hide the stale banner.
+    hideStaleBanner();
+    state.generatedOnce = true;
     try {
-        const preview = await api.getMigrationPreview();
-        if (preview) {
+        const result = await api.getMigrationPreview();
+        if (result && result.status === "ok") {
+            const preview = result.preview;
             $("import-snippet-panel").classList.remove("hidden");
             $("migration-panel").classList.remove("hidden");
             renderImportSnippet(preview.bomImportSnippet);
@@ -604,10 +726,17 @@ $("save-coordinates-btn").addEventListener("click", async () => {
         });
         btn.textContent = "Saved ✓";
         setTimeout(() => { btn.textContent = "Save coordinates"; btn.disabled = false; }, 1200);
+        markPreviewStale();
     } catch (err) {
         btn.disabled = false;
         alert("Failed to save: " + err.message);
     }
+});
+
+// Changing the version format invalidates the generated BOM too — the BOM's
+// own properties and layout depend on this choice.
+document.querySelectorAll('input[name="version-format"]').forEach(input => {
+    input.addEventListener("change", markPreviewStale);
 });
 
 /* ---------- init ---------- */

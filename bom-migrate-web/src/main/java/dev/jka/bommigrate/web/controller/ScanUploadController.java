@@ -36,13 +36,28 @@ public class ScanUploadController {
         this.session = session;
     }
 
+    /**
+     * Accepts uploaded POM files from the web UI. Supports an optional
+     * sibling {@code paths} parameter (one entry per file) that carries the
+     * relative path the file had on disk when the user picked it — e.g.
+     * {@code service-a/pom.xml}, {@code service-b/pom.xml} — so the preview
+     * UI can show meaningful labels even though every POM is literally named
+     * {@code pom.xml}. Browsers populate {@code webkitRelativePath} for files
+     * chosen via a directory picker; the frontend forwards that verbatim.
+     *
+     * <p>When {@code paths} is absent or the lengths don't match, the
+     * controller falls back to the previous numbered-subdirectory layout.
+     */
     @PostMapping("/upload")
     public ResponseEntity<DiscoveryReport> uploadAndScan(
-            @RequestParam("files") List<MultipartFile> files
+            @RequestParam("files") List<MultipartFile> files,
+            @RequestParam(value = "paths", required = false) List<String> paths
     ) throws IOException {
         if (files == null || files.isEmpty()) {
             return ResponseEntity.badRequest().build();
         }
+
+        boolean usePaths = paths != null && paths.size() == files.size();
 
         // Fresh temp dir for this upload batch
         Path tempRoot = Files.createTempDirectory("bom-migrate-upload-");
@@ -60,15 +75,26 @@ public class ScanUploadController {
                     ? file.getOriginalFilename()
                     : "pom-" + i + ".xml";
 
-            // Put each file in its own subdirectory to avoid name collisions
-            // when multiple "pom.xml" files are uploaded
-            Path serviceDir = tempRoot.resolve(String.valueOf(i));
-            Files.createDirectories(serviceDir);
-            Path target = serviceDir.resolve(safeFileName(originalName));
+            String displayName;
+            Path target;
+            if (usePaths) {
+                String rawPath = paths.get(i);
+                String safePath = sanitiseRelativePath(rawPath, i);
+                target = tempRoot.resolve(safePath);
+                Files.createDirectories(target.getParent());
+                displayName = safePath;
+            } else {
+                // Legacy layout: put each file in its own numbered subdir to avoid
+                // name collisions when multiple "pom.xml" files are uploaded.
+                Path serviceDir = tempRoot.resolve(String.valueOf(i));
+                Files.createDirectories(serviceDir);
+                target = serviceDir.resolve(safeFileName(originalName));
+                displayName = originalName;
+            }
             file.transferTo(target.toFile());
 
             writtenPoms.add(target);
-            displayNames.add(originalName);
+            displayNames.add(displayName);
         }
 
         DiscoveryReport report = analyser.analyse(writtenPoms);
@@ -78,6 +104,9 @@ public class ScanUploadController {
         session.setScanMetadata(ScanMetadata.localOnly(displayNames));
         // Reset any prior assignments since the scan changed
         session.setAssignments(List.of());
+        // Invalidate any previously-generated BOM — it was built against a
+        // different set of inputs. See DiscoverySessionService#computeCurrentSignature.
+        session.setLastGeneratedSignature(null);
 
         return ResponseEntity.ok(report);
     }
@@ -92,5 +121,34 @@ public class ScanUploadController {
             return "pom.xml";
         }
         return base;
+    }
+
+    /**
+     * Turns a user-supplied relative path (from {@code webkitRelativePath})
+     * into a safe sub-path under the temp dir. Rejects traversal segments
+     * and backslashes, normalises leading slashes, and falls back to a
+     * numbered path if the result is empty. The returned string is both
+     * the filesystem sub-path and the display name — so the UI sees the
+     * same thing the backend stored.
+     */
+    private String sanitiseRelativePath(String raw, int index) {
+        if (raw == null || raw.isBlank()) {
+            return index + "/pom.xml";
+        }
+        String normalised = raw.replace('\\', '/');
+        // Strip leading slashes
+        while (normalised.startsWith("/")) {
+            normalised = normalised.substring(1);
+        }
+        // Reject path traversal
+        for (String segment : normalised.split("/")) {
+            if (segment.equals("..")) {
+                return index + "/pom.xml";
+            }
+        }
+        if (normalised.isBlank()) {
+            return index + "/pom.xml";
+        }
+        return normalised;
     }
 }

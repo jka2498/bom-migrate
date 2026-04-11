@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.StringJoiner;
 
 /**
  * Holds the in-memory state for a single discovery session. The web server
@@ -30,6 +31,13 @@ public class DiscoverySessionService {
     private String parentArtifactId = "my-bom";
     private String parentVersion = "1.0.0";
     private VersionFormat versionFormat = VersionFormat.INLINE;
+    /**
+     * Signature of the session state that was used for the last successful
+     * BOM generation. Compared against {@link #computeCurrentSignature()} to
+     * detect stale previews after the user edits coordinates, modules or
+     * assignments. {@code null} means no generation has happened yet.
+     */
+    private String lastGeneratedSignature;
 
     public synchronized DiscoveryReport getReport() {
         return report;
@@ -109,5 +117,47 @@ public class DiscoverySessionService {
         this.parentGroupId = groupId;
         this.parentArtifactId = artifactId;
         this.parentVersion = version;
+    }
+
+    public synchronized String getLastGeneratedSignature() {
+        return lastGeneratedSignature;
+    }
+
+    public synchronized void setLastGeneratedSignature(String signature) {
+        this.lastGeneratedSignature = signature;
+    }
+
+    /**
+     * Computes a stable string signature of everything that affects the
+     * migration preview: coordinates, version format, modules (by name),
+     * and confirmed assignments (GAV + target module). Comparing this to
+     * {@link #getLastGeneratedSignature()} tells us whether the on-disk BOM
+     * still matches the current session state.
+     *
+     * <p>The signature is a plain delimited string (not a cryptographic hash)
+     * — it never needs to leave the server, so readable is fine and cheaper.
+     */
+    public synchronized String computeCurrentSignature() {
+        StringJoiner sj = new StringJoiner("|");
+        sj.add(parentGroupId == null ? "" : parentGroupId);
+        sj.add(parentArtifactId == null ? "" : parentArtifactId);
+        sj.add(parentVersion == null ? "" : parentVersion);
+        sj.add(versionFormat == null ? VersionFormat.INLINE.name() : versionFormat.name());
+
+        StringJoiner modulesPart = new StringJoiner(",");
+        for (BomModule module : modules) {
+            modulesPart.add(module.name());
+        }
+        sj.add(modulesPart.toString());
+
+        StringJoiner assignPart = new StringJoiner(",");
+        for (BomModuleAssignment assignment : assignments) {
+            assignPart.add(assignment.candidate().groupId()
+                    + ":" + assignment.candidate().artifactId()
+                    + "=" + assignment.confirmedVersion()
+                    + "@" + assignment.module().name());
+        }
+        sj.add(assignPart.toString());
+        return sj.toString();
     }
 }

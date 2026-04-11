@@ -53,6 +53,11 @@ public class BomController {
                     .toList();
         }
 
+        // Snapshot the session state that produced this BOM. MigrationPreviewService
+        // compares this to the current signature on every preview and rejects the
+        // request if they diverge — that's how the UI knows the BOM is stale.
+        session.setLastGeneratedSignature(session.computeCurrentSignature());
+
         return ResponseEntity.ok(new GenerateResponse(files, writtenPaths));
     }
 
