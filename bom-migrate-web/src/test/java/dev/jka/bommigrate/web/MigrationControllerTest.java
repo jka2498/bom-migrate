@@ -7,6 +7,7 @@ import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.BomModuleAssignment;
 import dev.jka.bommigrate.core.discovery.ConflictSeverity;
 import dev.jka.bommigrate.core.discovery.DiscoveryReport;
+import dev.jka.bommigrate.core.discovery.VersionFormat;
 import dev.jka.bommigrate.web.service.DiscoverySessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,7 @@ class MigrationControllerTest {
         session.setModules(List.of());
         session.setAssignments(List.of());
         session.setParentCoordinates("com.example", "my-bom", "1.0.0");
+        session.setVersionFormat(VersionFormat.INLINE);
     }
 
     @Test
@@ -182,5 +184,66 @@ class MigrationControllerTest {
                 // Each service's modified POM also gets both imports
                 .andExpect(jsonPath("$.services[0].modifiedContent").value(org.hamcrest.Matchers.containsString("<artifactId>backend-core</artifactId>")))
                 .andExpect(jsonPath("$.services[0].modifiedContent").value(org.hamcrest.Matchers.containsString("<artifactId>misc</artifactId>")));
+    }
+
+    @Test
+    void returnsPropertyReferenceSnippetWhenPropertiesFormat(@TempDir Path tempDir) throws Exception {
+        // 1. Generate a BOM in PROPERTIES format
+        BomModule defaultModule = BomModule.defaultModule();
+        BomCandidate guava = new BomCandidate(
+                "com.google.guava", "guava",
+                Map.of("33.0.0-jre", 1),
+                1, 1, "33.0.0-jre", ConflictSeverity.NONE, 0.95);
+
+        BomGenerationPlan plan = new BomGenerationPlan(
+                "com.example", "my-bom", "1.0.0",
+                List.of(defaultModule),
+                List.of(new BomModuleAssignment(guava, defaultModule, "33.0.0-jre")),
+                VersionFormat.PROPERTIES
+        );
+        Path bomDir = tempDir.resolve("bom");
+        Files.createDirectories(bomDir);
+        new BomGenerator().writeTo(plan, bomDir);
+
+        // 2. Service POM referencing the managed dep
+        Path serviceDir = tempDir.resolve("service-a");
+        Files.createDirectories(serviceDir);
+        Path servicePom = serviceDir.resolve("pom.xml");
+        Files.writeString(servicePom, """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>com.example</groupId>
+                    <artifactId>service-a</artifactId>
+                    <version>1.0.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.google.guava</groupId>
+                            <artifactId>guava</artifactId>
+                            <version>33.0.0-jre</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """, StandardCharsets.UTF_8);
+
+        // 3. Seed the session with PROPERTIES format
+        session.setOutputDir(bomDir);
+        session.setScannedPomPaths(List.of(servicePom));
+        session.setScanMetadata(dev.jka.bommigrate.core.discovery.ScanMetadata.localOnly(List.of("service-a/pom.xml")));
+        session.setParentCoordinates("com.example", "my-bom", "1.0.0");
+        session.setVersionFormat(VersionFormat.PROPERTIES);
+        session.setReport(new DiscoveryReport(List.of(guava), 1, Instant.now()));
+
+        // 4. Assert snippet has <properties> block AND property-reference version
+        mockMvc.perform(get("/api/migration/preview"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bomImportSnippet").value(org.hamcrest.Matchers.containsString("<properties>")))
+                .andExpect(jsonPath("$.bomImportSnippet").value(org.hamcrest.Matchers.containsString("<my-bom.version>1.0.0</my-bom.version>")))
+                .andExpect(jsonPath("$.bomImportSnippet").value(org.hamcrest.Matchers.containsString("<version>${my-bom.version}</version>")))
+                // Literal version should NOT appear in the import entry
+                .andExpect(jsonPath("$.bomImportSnippet").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("<version>1.0.0</version>"))))
+                // The service POM gets the same treatment: merged property + property-reference import
+                .andExpect(jsonPath("$.services[0].modifiedContent").value(org.hamcrest.Matchers.containsString("<my-bom.version>1.0.0</my-bom.version>")))
+                .andExpect(jsonPath("$.services[0].modifiedContent").value(org.hamcrest.Matchers.containsString("<version>${my-bom.version}</version>")));
     }
 }
