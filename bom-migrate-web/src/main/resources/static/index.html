@@ -53,6 +53,17 @@
                 <tbody id="candidate-tbody"></tbody>
             </table>
             <div class="action-bar">
+                <fieldset id="version-format-toggle">
+                    <legend>Version format</legend>
+                    <label>
+                        <input type="radio" name="version-format" value="INLINE" checked/>
+                        Inline (<code>&lt;version&gt;1.2.3&lt;/version&gt;</code>)
+                    </label>
+                    <label>
+                        <input type="radio" name="version-format" value="PROPERTIES"/>
+                        Properties (<code>${artifactId.version}</code>)
+                    </label>
+                </fieldset>
                 <button id="generate-btn" class="primary">Generate BOM</button>
             </div>
         </section>

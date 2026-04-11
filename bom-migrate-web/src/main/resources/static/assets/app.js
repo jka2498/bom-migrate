@@ -33,8 +33,12 @@ const api = {
         });
         return res.json();
     },
-    async generate() {
-        const res = await fetch("/api/bom/generate", { method: "POST" });
+    async generate(versionFormat) {
+        const res = await fetch("/api/bom/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ versionFormat })
+        });
         return res.json();
     }
 };
@@ -203,6 +207,63 @@ $("save-modules-btn").addEventListener("click", async () => {
     alert("Modules saved.");
 });
 
+function selectedVersionFormat() {
+    const checked = document.querySelector('input[name="version-format"]:checked');
+    return checked ? checked.value : "INLINE";
+}
+
+async function copyToClipboard(text, button) {
+    try {
+        await navigator.clipboard.writeText(text);
+        const original = button.textContent;
+        button.textContent = "Copied!";
+        button.classList.add("copied");
+        setTimeout(() => {
+            button.textContent = original;
+            button.classList.remove("copied");
+        }, 1500);
+    } catch (err) {
+        // Fallback: create a temporary textarea and use document.execCommand
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+        document.body.removeChild(ta);
+        button.textContent = "Copied!";
+        setTimeout(() => { button.textContent = "Copy"; }, 1500);
+    }
+}
+
+function renderGeneratedFile(path, content) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "generated-file";
+
+    const header = document.createElement("div");
+    header.className = "generated-file-header";
+
+    const heading = document.createElement("h3");
+    heading.textContent = path;
+    header.appendChild(heading);
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "copy-btn";
+    copyBtn.textContent = "Copy";
+    copyBtn.addEventListener("click", () => copyToClipboard(content, copyBtn));
+    header.appendChild(copyBtn);
+
+    wrapper.appendChild(header);
+
+    const pre = document.createElement("pre");
+    pre.textContent = content;
+    wrapper.appendChild(pre);
+
+    return wrapper;
+}
+
 $("generate-btn").addEventListener("click", async () => {
     // Build assignments from selections
     const assignments = [];
@@ -220,23 +281,18 @@ $("generate-btn").addEventListener("click", async () => {
 
     await api.setModules(state.modules);
     await api.confirm(assignments);
-    const result = await api.generate();
+    const result = await api.generate(selectedVersionFormat());
 
     $("result-panel").classList.remove("hidden");
     $("result-output").innerHTML = "";
-    Object.entries(result.files).forEach(([path, content]) => {
-        const h3 = document.createElement("h3");
-        h3.textContent = path;
-        const pre = document.createElement("pre");
-        pre.textContent = content;
-        $("result-output").appendChild(h3);
-        $("result-output").appendChild(pre);
-    });
     if (result.written && result.written.length > 0) {
         const note = document.createElement("p");
         note.innerHTML = `<strong>Wrote to disk:</strong> ${result.written.join(", ")}`;
-        $("result-output").prepend(note);
+        $("result-output").appendChild(note);
     }
+    Object.entries(result.files).forEach(([path, content]) => {
+        $("result-output").appendChild(renderGeneratedFile(path, content));
+    });
 });
 
 init().catch(err => {

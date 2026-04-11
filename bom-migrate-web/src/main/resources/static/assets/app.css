@@ -121,7 +121,44 @@ th { background: #f5f5f7; font-weight: 600; color: #515154; }
 .conflict-MINOR { color: #ff9500; }
 .conflict-MAJOR { color: #ff3b30; font-weight: 600; }
 td select, td input[type="text"] { width: 100%; }
-.action-bar { margin-top: 1.5rem; text-align: right; }
+.action-bar {
+    margin-top: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+#version-format-toggle {
+    border: 1px solid #d2d2d7;
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    margin: 0;
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    font-size: 0.8rem;
+}
+#version-format-toggle legend {
+    padding: 0 0.5rem;
+    color: #515154;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+#version-format-toggle label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+}
+#version-format-toggle code {
+    background: #f5f5f7;
+    padding: 0.05rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+}
 #summary {
     color: #515154;
     font-size: 0.875rem;
@@ -133,4 +170,35 @@ pre {
     border-radius: 8px;
     overflow-x: auto;
     font-size: 0.75rem;
+}
+.generated-file {
+    margin-bottom: 1.25rem;
+}
+.generated-file-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+.generated-file-header h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    color: #1d1d1f;
+}
+.copy-btn {
+    background: #f5f5f7;
+    border: 1px solid #d2d2d7;
+    color: #1d1d1f;
+    padding: 0.3rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+.copy-btn:hover { background: #e8e8ed; }
+.copy-btn.copied {
+    background: #34c759;
+    color: #fff;
+    border-color: #34c759;
 }
