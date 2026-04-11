@@ -64,10 +64,13 @@ class ScanUploadControllerTest {
                 .andExpect(jsonPath("$.totalServicesScanned").value(1))
                 .andExpect(jsonPath("$.candidates[0].groupId").value("com.google.guava"));
 
-        // Session should be seeded with the temp path
+        // Session should be seeded with the temp path. The display name is
+        // derived from the POM's <artifactId> because the raw filename is
+        // just "pom.xml" (no directory context available from the browser).
         assertThat(session.getScannedPomPaths()).hasSize(1);
         assertThat(session.getReport().totalServicesScanned()).isEqualTo(1);
-        assertThat(session.getScanMetadata().scannedSources()).containsExactly("pom.xml");
+        assertThat(session.getScanMetadata().scannedSources())
+                .containsExactly("service-a/pom.xml");
     }
 
     @Test
@@ -113,6 +116,9 @@ class ScanUploadControllerTest {
         // Both files have the same name but should be placed in their own subdirs
         assertThat(session.getScannedPomPaths().get(0))
                 .isNotEqualTo(session.getScannedPomPaths().get(1));
+        // Display names come from each POM's <artifactId>
+        assertThat(session.getScanMetadata().scannedSources())
+                .containsExactly("a/pom.xml", "b/pom.xml");
     }
 
     @Test
@@ -210,5 +216,101 @@ class ScanUploadControllerTest {
                 .andExpect(status().isOk());
 
         assertThat(session.getLastGeneratedSignature()).isNull();
+    }
+
+    @Test
+    void uploadWithoutPathsDerivesDisplayNameFromArtifactId() throws Exception {
+        // Two individually-picked POMs — no paths param, the browser's file
+        // picker couldn't give us webkitRelativePath. We should fall back to
+        // <artifactId>/pom.xml for each.
+        String serviceA = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project><modelVersion>4.0.0</modelVersion>
+                    <groupId>com.ex</groupId><artifactId>user-service</artifactId><version>1.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.google.guava</groupId>
+                            <artifactId>guava</artifactId>
+                            <version>33.0.0-jre</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """;
+        String serviceB = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project><modelVersion>4.0.0</modelVersion>
+                    <groupId>com.ex</groupId><artifactId>order-service</artifactId><version>1.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.google.guava</groupId>
+                            <artifactId>guava</artifactId>
+                            <version>33.0.0-jre</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """;
+
+        MockMultipartFile a = new MockMultipartFile("files", "pom.xml", "application/xml",
+                serviceA.getBytes(StandardCharsets.UTF_8));
+        MockMultipartFile b = new MockMultipartFile("files", "pom.xml", "application/xml",
+                serviceB.getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(multipart("/api/scan/upload").file(a).file(b))
+                .andExpect(status().isOk());
+
+        assertThat(session.getScanMetadata().scannedSources())
+                .containsExactly("user-service/pom.xml", "order-service/pom.xml");
+    }
+
+    @Test
+    void uploadWithDuplicateArtifactIdsAppendsCounter() throws Exception {
+        // Two POMs with the same artifactId — should be disambiguated in the
+        // display (filesystem paths stay unique via the numbered subdirs).
+        String pom = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project><modelVersion>4.0.0</modelVersion>
+                    <groupId>com.ex</groupId><artifactId>service</artifactId><version>1.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.google.guava</groupId>
+                            <artifactId>guava</artifactId>
+                            <version>33.0.0-jre</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """;
+
+        MockMultipartFile a = new MockMultipartFile("files", "pom.xml", "application/xml",
+                pom.getBytes(StandardCharsets.UTF_8));
+        MockMultipartFile b = new MockMultipartFile("files", "pom.xml", "application/xml",
+                pom.getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(multipart("/api/scan/upload").file(a).file(b))
+                .andExpect(status().isOk());
+
+        assertThat(session.getScanMetadata().scannedSources())
+                .containsExactly("service/pom.xml", "service/pom.xml (2)");
+    }
+
+    @Test
+    void uploadWithMalformedPomFallsBackToNumberedLayout() throws Exception {
+        // DependencyFrequencyAnalyser is strict enough that a completely
+        // broken XML blob throws, so use an empty but well-formed <project>
+        // that has no <artifactId>. The display name helper should return
+        // null and the fallback numbered layout (0/pom.xml) kicks in.
+        String malformed = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project><modelVersion>4.0.0</modelVersion>
+                    <groupId>com.ex</groupId><version>1.0</version>
+                </project>
+                """;
+
+        MockMultipartFile file = new MockMultipartFile("files", "pom.xml", "application/xml",
+                malformed.getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(multipart("/api/scan/upload").file(file))
+                .andExpect(status().isOk());
+
+        assertThat(session.getScanMetadata().scannedSources()).containsExactly("0/pom.xml");
     }
 }

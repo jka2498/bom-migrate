@@ -3,7 +3,9 @@ package dev.jka.bommigrate.web.controller;
 import dev.jka.bommigrate.core.discovery.DependencyFrequencyAnalyser;
 import dev.jka.bommigrate.core.discovery.DiscoveryReport;
 import dev.jka.bommigrate.core.discovery.ScanMetadata;
+import dev.jka.bommigrate.core.model.PomModelReader;
 import dev.jka.bommigrate.web.service.DiscoverySessionService;
+import org.apache.maven.model.Model;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,7 +17,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Accepts native file uploads from the web UI's file picker. Writes each
@@ -45,8 +49,13 @@ public class ScanUploadController {
      * {@code pom.xml}. Browsers populate {@code webkitRelativePath} for files
      * chosen via a directory picker; the frontend forwards that verbatim.
      *
-     * <p>When {@code paths} is absent or the lengths don't match, the
-     * controller falls back to the previous numbered-subdirectory layout.
+     * <p>When {@code paths} is missing, blank, or just a bare filename (no
+     * directory separator), the controller reads the uploaded POM's
+     * {@code <artifactId>} and uses {@code <artifactId>/pom.xml} as the
+     * display name. This is the only way to give meaningful labels to
+     * individually-picked files, because the native file picker never
+     * exposes the original filesystem path to JavaScript. Falls back to a
+     * numbered placeholder ({@code 0/pom.xml}) if the POM can't be parsed.
      */
     @PostMapping("/upload")
     public ResponseEntity<DiscoveryReport> uploadAndScan(
@@ -64,6 +73,7 @@ public class ScanUploadController {
 
         List<Path> writtenPoms = new ArrayList<>();
         List<String> displayNames = new ArrayList<>();
+        Set<String> usedDisplayNames = new LinkedHashSet<>();
 
         for (int i = 0; i < files.size(); i++) {
             MultipartFile file = files.get(i);
@@ -75,23 +85,39 @@ public class ScanUploadController {
                     ? file.getOriginalFilename()
                     : "pom-" + i + ".xml";
 
+            String rawPath = usePaths ? paths.get(i) : null;
+            String safePath = rawPath != null && !rawPath.isBlank()
+                    ? sanitiseRelativePath(rawPath, i)
+                    : null;
+            // Informative = the browser gave us a meaningful directory path
+            // (webkitRelativePath from the folder picker, typically). Bare
+            // "pom.xml" is NOT informative — the regular file picker can't
+            // do better than that, and we'd rather show the artifactId.
+            boolean informative = safePath != null && safePath.contains("/");
+
             String displayName;
             Path target;
-            if (usePaths) {
-                String rawPath = paths.get(i);
-                String safePath = sanitiseRelativePath(rawPath, i);
+            if (informative) {
                 target = tempRoot.resolve(safePath);
                 Files.createDirectories(target.getParent());
+                file.transferTo(target.toFile());
                 displayName = safePath;
             } else {
-                // Legacy layout: put each file in its own numbered subdir to avoid
-                // name collisions when multiple "pom.xml" files are uploaded.
+                // Numbered subdir: always unique on disk, regardless of how
+                // many POMs collide on name.
                 Path serviceDir = tempRoot.resolve(String.valueOf(i));
                 Files.createDirectories(serviceDir);
                 target = serviceDir.resolve(safeFileName(originalName));
-                displayName = originalName;
+                file.transferTo(target.toFile());
+                // Now that the file is on disk, try to derive a human-readable
+                // display name from its <artifactId>. Falls back to the
+                // numbered layout if the POM is unparseable or has no id.
+                String artifactDisplay = tryArtifactIdDisplayName(target);
+                displayName = artifactDisplay != null ? artifactDisplay : (i + "/pom.xml");
             }
-            file.transferTo(target.toFile());
+
+            displayName = disambiguate(displayName, usedDisplayNames);
+            usedDisplayNames.add(displayName);
 
             writtenPoms.add(target);
             displayNames.add(displayName);
@@ -121,6 +147,44 @@ public class ScanUploadController {
             return "pom.xml";
         }
         return base;
+    }
+
+    /**
+     * Reads the POM's {@code <artifactId>} and returns it formatted as
+     * {@code artifactId/pom.xml} for display in the scanned-sources panel.
+     * Returns {@code null} if the file isn't parseable or has no artifactId
+     * — caller should fall back to the numbered layout.
+     */
+    private String tryArtifactIdDisplayName(Path pomFile) {
+        try {
+            Model model = PomModelReader.parseModel(pomFile);
+            String artifactId = model.getArtifactId();
+            if (artifactId == null || artifactId.isBlank()) {
+                return null;
+            }
+            return artifactId + "/pom.xml";
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /**
+     * If {@code name} is already in {@code used}, appends a parenthesised
+     * counter ({@code " (2)"}, {@code " (3)"}, ...) until it's unique. The
+     * filesystem path is already guaranteed unique by the caller — this
+     * only affects the display string shown in the scanned-sources panel.
+     */
+    private String disambiguate(String name, Set<String> used) {
+        if (!used.contains(name)) {
+            return name;
+        }
+        int suffix = 2;
+        String candidate = name + " (" + suffix + ")";
+        while (used.contains(candidate)) {
+            suffix++;
+            candidate = name + " (" + suffix + ")";
+        }
+        return candidate;
     }
 
     /**
