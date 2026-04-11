@@ -5,6 +5,7 @@ import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.BomModuleAssignment;
 import dev.jka.bommigrate.core.discovery.DiscoveryReport;
 import dev.jka.bommigrate.core.discovery.ScanMetadata;
+import dev.jka.bommigrate.core.discovery.VersionFormat;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -27,6 +28,7 @@ public class DiscoverySessionService {
     private String parentGroupId = "com.example";
     private String parentArtifactId = "my-bom";
     private String parentVersion = "1.0.0";
+    private VersionFormat versionFormat = VersionFormat.INLINE;
 
     public synchronized DiscoveryReport getReport() {
         return report;
@@ -63,7 +65,15 @@ public class DiscoverySessionService {
     public synchronized BomGenerationPlan buildPlan() {
         return new BomGenerationPlan(
                 parentGroupId, parentArtifactId, parentVersion,
-                modules, assignments);
+                modules, assignments, versionFormat);
+    }
+
+    public synchronized VersionFormat getVersionFormat() {
+        return versionFormat;
+    }
+
+    public synchronized void setVersionFormat(VersionFormat versionFormat) {
+        this.versionFormat = versionFormat != null ? versionFormat : VersionFormat.INLINE;
     }
 
     public synchronized Path getOutputDir() {

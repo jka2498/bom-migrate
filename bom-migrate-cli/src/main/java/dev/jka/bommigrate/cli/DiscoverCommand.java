@@ -6,6 +6,7 @@ import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.DependencyFrequencyAnalyser;
 import dev.jka.bommigrate.core.discovery.DiscoveryReport;
 import dev.jka.bommigrate.core.discovery.ScanMetadata;
+import dev.jka.bommigrate.core.discovery.VersionFormat;
 import dev.jka.bommigrate.github.ClonedRepo;
 import dev.jka.bommigrate.github.OrgScanResult;
 import dev.jka.bommigrate.github.OrgScanner;
@@ -109,6 +110,10 @@ public class DiscoverCommand implements Callable<Integer> {
             description = "Exclude candidates used by fewer than this many services")
     int minFrequency;
 
+    @Option(names = "--version-format", defaultValue = "INLINE",
+            description = "How versions are emitted in the generated BOM: ${COMPLETION-CANDIDATES} (default: INLINE)")
+    VersionFormat versionFormat;
+
     @Override
     public Integer call() {
         try {
@@ -150,7 +155,7 @@ public class DiscoverCommand implements Callable<Integer> {
         if (web) {
             try {
                 WebServerLauncher.start(report, scan.metadata, modules, webPort, outputDir,
-                        bomGroupId, bomArtifactId, bomVersion);
+                        bomGroupId, bomArtifactId, bomVersion, versionFormat);
                 System.out.println("Press Ctrl+C to stop the web server when done.");
                 // Block the main thread so the server stays up
                 Thread.currentThread().join();
@@ -176,7 +181,7 @@ public class DiscoverCommand implements Callable<Integer> {
         }
 
         CandidateReviewWizard wizard = new CandidateReviewWizard();
-        BomGenerationPlan plan = wizard.review(report, modules, bomGroupId, bomArtifactId, bomVersion);
+        BomGenerationPlan plan = wizard.review(report, modules, bomGroupId, bomArtifactId, bomVersion, versionFormat);
 
         // 5. Generate BOM
         System.out.println();

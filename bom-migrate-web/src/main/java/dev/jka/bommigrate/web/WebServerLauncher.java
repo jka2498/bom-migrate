@@ -3,6 +3,7 @@ package dev.jka.bommigrate.web;
 import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.DiscoveryReport;
 import dev.jka.bommigrate.core.discovery.ScanMetadata;
+import dev.jka.bommigrate.core.discovery.VersionFormat;
 import dev.jka.bommigrate.web.service.DiscoverySessionService;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -26,12 +27,14 @@ public final class WebServerLauncher {
      * available) opens the browser.
      *
      * @param report          the discovery report to review
+     * @param scanMetadata    metadata about which sources were scanned (and skipped/failed)
      * @param initialModules  initial module definitions
      * @param requestedPort   preferred server port (will auto-increment if taken)
      * @param outputDir       directory to write generated BOM files into
      * @param parentGroupId   parent POM groupId
      * @param parentArtifactId parent POM artifactId
      * @param parentVersion   parent POM version
+     * @param versionFormat   how versions should be emitted in the generated BOM
      * @return the running Spring {@link ConfigurableApplicationContext}
      */
     public static ConfigurableApplicationContext start(
@@ -42,7 +45,8 @@ public final class WebServerLauncher {
             Path outputDir,
             String parentGroupId,
             String parentArtifactId,
-            String parentVersion) {
+            String parentVersion,
+            VersionFormat versionFormat) {
 
         int port = findAvailablePort(requestedPort);
 
@@ -56,6 +60,7 @@ public final class WebServerLauncher {
         session.setModules(initialModules);
         session.setOutputDir(outputDir);
         session.setParentCoordinates(parentGroupId, parentArtifactId, parentVersion);
+        session.setVersionFormat(versionFormat);
 
         String url = "http://localhost:" + port;
         System.out.println("Web UI started at " + url);

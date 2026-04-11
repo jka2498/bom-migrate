@@ -69,25 +69,112 @@ class BomGeneratorTest {
         Map<String, String> files = generator.generate(plan);
 
         assertThat(files).hasSize(3)
-                .containsKeys("pom.xml", "my-bom-backend-core/pom.xml", "my-bom-misc/pom.xml");
+                .containsKeys("pom.xml", "backend-core/pom.xml", "misc/pom.xml");
 
-        // Aggregator POM lists both modules
+        // Aggregator POM lists both modules using their plain names (no parent prefix)
         String aggregator = files.get("pom.xml");
-        assertThat(aggregator).contains("<module>my-bom-backend-core</module>");
-        assertThat(aggregator).contains("<module>my-bom-misc</module>");
+        assertThat(aggregator).contains("<module>backend-core</module>");
+        assertThat(aggregator).contains("<module>misc</module>");
 
         // backend-core child has guava only
-        String backendChild = files.get("my-bom-backend-core/pom.xml");
-        assertThat(backendChild).contains("<artifactId>my-bom-backend-core</artifactId>");
+        String backendChild = files.get("backend-core/pom.xml");
+        assertThat(backendChild).contains("<artifactId>backend-core</artifactId>");
         assertThat(backendChild).contains("<groupId>com.google.guava</groupId>");
         assertThat(backendChild).doesNotContain("commons-lang3");
         assertThat(backendChild).contains("<artifactId>my-bom</artifactId>"); // parent
 
         // misc child has commons-lang3 only
-        String miscChild = files.get("my-bom-misc/pom.xml");
+        String miscChild = files.get("misc/pom.xml");
+        assertThat(miscChild).contains("<artifactId>misc</artifactId>");
         assertThat(miscChild).contains("<groupId>org.apache.commons</groupId>");
         assertThat(miscChild).contains("<artifactId>commons-lang3</artifactId>");
         assertThat(miscChild).doesNotContain("guava");
+    }
+
+    @Test
+    void inlineVersionFormatWritesVersionDirectlyOnDependency() {
+        BomModule defaultModule = BomModule.defaultModule();
+        BomCandidate guava = new BomCandidate(
+                "com.google.guava", "guava", Map.of("33.0.0-jre", 1),
+                1, 1, "33.0.0-jre", ConflictSeverity.NONE, 0.95);
+
+        BomGenerationPlan plan = new BomGenerationPlan(
+                "com.example", "my-bom", "1.0.0",
+                List.of(defaultModule),
+                List.of(new BomModuleAssignment(guava, defaultModule, "33.0.0-jre")),
+                VersionFormat.INLINE
+        );
+
+        String pom = generator.generate(plan).get("pom.xml");
+
+        assertThat(pom).contains("<version>33.0.0-jre</version>");
+        assertThat(pom).doesNotContain("<properties>");
+        assertThat(pom).doesNotContain("${guava.version}");
+    }
+
+    @Test
+    void propertiesVersionFormatExtractsVersions() {
+        BomModule defaultModule = BomModule.defaultModule();
+        BomCandidate guava = new BomCandidate(
+                "com.google.guava", "guava", Map.of("33.0.0-jre", 1),
+                1, 1, "33.0.0-jre", ConflictSeverity.NONE, 0.95);
+        BomCandidate slf4j = new BomCandidate(
+                "org.slf4j", "slf4j-api", Map.of("2.0.9", 1),
+                1, 1, "2.0.9", ConflictSeverity.NONE, 0.90);
+
+        BomGenerationPlan plan = new BomGenerationPlan(
+                "com.example", "my-bom", "1.0.0",
+                List.of(defaultModule),
+                List.of(
+                        new BomModuleAssignment(guava, defaultModule, "33.0.0-jre"),
+                        new BomModuleAssignment(slf4j, defaultModule, "2.0.9")
+                ),
+                VersionFormat.PROPERTIES
+        );
+
+        String pom = generator.generate(plan).get("pom.xml");
+
+        // Properties block contains both versions
+        assertThat(pom).contains("<properties>");
+        assertThat(pom).contains("<guava.version>33.0.0-jre</guava.version>");
+        assertThat(pom).contains("<slf4j-api.version>2.0.9</slf4j-api.version>");
+
+        // Dependency entries reference the properties
+        assertThat(pom).contains("<version>${guava.version}</version>");
+        assertThat(pom).contains("<version>${slf4j-api.version}</version>");
+
+        // Inlined versions are NOT present
+        assertThat(pom).doesNotContain("<version>33.0.0-jre</version>");
+        assertThat(pom).doesNotContain("<version>2.0.9</version>");
+    }
+
+    @Test
+    void propertiesVersionFormatHandlesArtifactIdCollision() {
+        BomModule defaultModule = BomModule.defaultModule();
+        // Two different groups with the same artifactId
+        BomCandidate one = new BomCandidate(
+                "com.example.foo", "common", Map.of("1.0.0", 1),
+                1, 1, "1.0.0", ConflictSeverity.NONE, 0.5);
+        BomCandidate two = new BomCandidate(
+                "com.example.bar", "common", Map.of("2.0.0", 1),
+                1, 1, "2.0.0", ConflictSeverity.NONE, 0.5);
+
+        BomGenerationPlan plan = new BomGenerationPlan(
+                "com.example", "my-bom", "1.0.0",
+                List.of(defaultModule),
+                List.of(
+                        new BomModuleAssignment(one, defaultModule, "1.0.0"),
+                        new BomModuleAssignment(two, defaultModule, "2.0.0")
+                ),
+                VersionFormat.PROPERTIES
+        );
+
+        String pom = generator.generate(plan).get("pom.xml");
+
+        // After alphabetical sort by groupId:artifactId, "bar:common" comes first
+        // and claims the simple "common.version" name. "foo:common" gets the qualified fallback.
+        assertThat(pom).contains("<common.version>2.0.0</common.version>");
+        assertThat(pom).contains("<com.example.foo.common.version>1.0.0</com.example.foo.common.version>");
     }
 
     @Test

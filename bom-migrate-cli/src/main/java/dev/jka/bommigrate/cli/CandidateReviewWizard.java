@@ -5,6 +5,7 @@ import dev.jka.bommigrate.core.discovery.BomGenerationPlan;
 import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.BomModuleAssignment;
 import dev.jka.bommigrate.core.discovery.DiscoveryReport;
+import dev.jka.bommigrate.core.discovery.VersionFormat;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -50,6 +51,15 @@ public final class CandidateReviewWizard {
                                     String parentGroupId,
                                     String parentArtifactId,
                                     String parentVersion) throws IOException {
+        return review(report, modules, parentGroupId, parentArtifactId, parentVersion, VersionFormat.INLINE);
+    }
+
+    public BomGenerationPlan review(DiscoveryReport report,
+                                    List<BomModule> modules,
+                                    String parentGroupId,
+                                    String parentArtifactId,
+                                    String parentVersion,
+                                    VersionFormat versionFormat) throws IOException {
         output.println();
         output.println("Found " + report.candidates().size() + " BOM candidates. Review each to include or exclude:");
         output.println();
@@ -77,7 +87,7 @@ public final class CandidateReviewWizard {
 
         return new BomGenerationPlan(
                 parentGroupId, parentArtifactId, parentVersion,
-                modules, assignments);
+                modules, assignments, versionFormat);
     }
 
     private boolean promptInclude() throws IOException {

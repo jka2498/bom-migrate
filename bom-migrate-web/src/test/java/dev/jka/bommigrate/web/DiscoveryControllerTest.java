@@ -127,4 +127,43 @@ class DiscoveryControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scannedSources.length()").value(0));
     }
+
+    @Test
+    void getVersionFormatDefaultsToInline() throws Exception {
+        mockMvc.perform(get("/api/bom/version-format"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versionFormat").value("INLINE"));
+    }
+
+    @Test
+    void postVersionFormatPersistsChoice() throws Exception {
+        mockMvc.perform(post("/api/bom/version-format")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"versionFormat\":\"PROPERTIES\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versionFormat").value("PROPERTIES"));
+
+        mockMvc.perform(get("/api/bom/version-format"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versionFormat").value("PROPERTIES"));
+    }
+
+    @Test
+    void generateAcceptsVersionFormatInRequestBody() throws Exception {
+        BomCandidate guava = new BomCandidate(
+                "com.google.guava", "guava",
+                Map.of("33.0.0-jre", 1),
+                1, 1, "33.0.0-jre", ConflictSeverity.NONE, 0.95);
+        session.setReport(new DiscoveryReport(List.of(guava), 1, Instant.now()));
+
+        BomModule core = new BomModule("core");
+        session.setModules(List.of(core));
+        session.setAssignments(List.of(new BomModuleAssignment(guava, core, "33.0.0-jre")));
+
+        mockMvc.perform(post("/api/bom/generate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"versionFormat\":\"PROPERTIES\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.files['pom.xml']").exists());
+    }
 }
