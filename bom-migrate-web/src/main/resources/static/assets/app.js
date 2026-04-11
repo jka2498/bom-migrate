@@ -57,6 +57,18 @@ const api = {
         if (res.status === 412) return null;
         if (!res.ok) throw new Error("Migration preview failed: " + res.status);
         return res.json();
+    },
+    async getCoordinates() {
+        const res = await fetch("/api/bom/coordinates");
+        return res.json();
+    },
+    async setCoordinates(coords) {
+        const res = await fetch("/api/bom/coordinates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(coords)
+        });
+        return res.json();
     }
 };
 
@@ -131,6 +143,9 @@ $("upload-btn").addEventListener("click", async () => {
         renderPendingFiles();
         renderScanMetadata();
         renderCandidates();
+        // After a fresh scan, re-fetch coordinates so any suggested groupId
+        // from the newly-scanned POMs pre-fills the form.
+        await loadCoordinates();
         // Hide any stale result panels since the report changed
         $("result-panel").classList.add("hidden");
         $("import-snippet-panel").classList.add("hidden");
@@ -338,6 +353,73 @@ function renderImportSnippet(snippet) {
     container.appendChild(renderGeneratedFile("Add to your service's pom.xml", snippet));
 }
 
+function escapeHtml(str) {
+    return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+
+function renderDiff(diffLines) {
+    // Collapse long runs of UNCHANGED lines with a "… N unchanged lines …" marker.
+    // Keeps 3 lines of context around each change.
+    const CONTEXT = 3;
+    const rendered = [];
+    let i = 0;
+    while (i < diffLines.length) {
+        const line = diffLines[i];
+        if (line.status === "UNCHANGED") {
+            // Look ahead: how many unchanged lines in a row?
+            let j = i;
+            while (j < diffLines.length && diffLines[j].status === "UNCHANGED") j++;
+            const run = j - i;
+            const isStart = i === 0;
+            const isEnd = j === diffLines.length;
+
+            if (run > CONTEXT * 2 + 1 && !isStart && !isEnd) {
+                // Emit CONTEXT, then ellipsis, then CONTEXT
+                for (let k = 0; k < CONTEXT; k++) rendered.push(diffLines[i + k]);
+                rendered.push({ status: "COLLAPSED", hiddenCount: run - CONTEXT * 2 });
+                for (let k = 0; k < CONTEXT; k++) rendered.push(diffLines[j - CONTEXT + k]);
+            } else if (run > CONTEXT && isStart) {
+                rendered.push({ status: "COLLAPSED", hiddenCount: run - CONTEXT });
+                for (let k = 0; k < CONTEXT; k++) rendered.push(diffLines[j - CONTEXT + k]);
+            } else if (run > CONTEXT && isEnd) {
+                for (let k = 0; k < CONTEXT; k++) rendered.push(diffLines[i + k]);
+                rendered.push({ status: "COLLAPSED", hiddenCount: run - CONTEXT });
+            } else {
+                for (let k = 0; k < run; k++) rendered.push(diffLines[i + k]);
+            }
+            i = j;
+        } else {
+            rendered.push(line);
+            i++;
+        }
+    }
+
+    const html = rendered.map(l => {
+        if (l.status === "COLLAPSED") {
+            return `<tr class="diff-collapsed"><td colspan="3">… ${l.hiddenCount} unchanged line${l.hiddenCount === 1 ? "" : "s"} …</td></tr>`;
+        }
+        const cls = l.status === "ADDED" ? "diff-added"
+            : l.status === "REMOVED" ? "diff-removed"
+                : "diff-unchanged";
+        const marker = l.status === "ADDED" ? "+" : l.status === "REMOVED" ? "-" : " ";
+        const oldN = l.oldNumber > 0 ? l.oldNumber : "";
+        const newN = l.newNumber > 0 ? l.newNumber : "";
+        return `<tr class="${cls}">
+            <td class="diff-line-num">${oldN}</td>
+            <td class="diff-line-num">${newN}</td>
+            <td class="diff-line"><span class="diff-marker">${marker}</span>${escapeHtml(l.content)}</td>
+        </tr>`;
+    }).join("");
+
+    const table = document.createElement("table");
+    table.className = "diff-table";
+    table.innerHTML = html;
+    return table;
+}
+
 function renderMigrationPreview(preview) {
     const summary = $("migration-summary");
     const output = $("migration-output");
@@ -384,7 +466,61 @@ function renderMigrationPreview(preview) {
             details.appendChild(flaggedBox);
         }
 
-        details.appendChild(renderGeneratedFile("Modified pom.xml", svc.modifiedContent));
+        // Tab bar: diff (default) | full modified POM
+        const viewWrapper = document.createElement("div");
+        viewWrapper.className = "preview-view";
+
+        const tabBar = document.createElement("div");
+        tabBar.className = "preview-tabs";
+
+        const diffTab = document.createElement("button");
+        diffTab.type = "button";
+        diffTab.className = "preview-tab active";
+        diffTab.textContent = "Diff";
+
+        const fullTab = document.createElement("button");
+        fullTab.type = "button";
+        fullTab.className = "preview-tab";
+        fullTab.textContent = "Full pom.xml";
+
+        const copyBtn = document.createElement("button");
+        copyBtn.type = "button";
+        copyBtn.className = "copy-btn preview-copy";
+        copyBtn.textContent = "Copy full";
+        copyBtn.addEventListener("click", () => copyToClipboard(svc.modifiedContent, copyBtn));
+
+        tabBar.appendChild(diffTab);
+        tabBar.appendChild(fullTab);
+        tabBar.appendChild(copyBtn);
+        viewWrapper.appendChild(tabBar);
+
+        const diffView = document.createElement("div");
+        diffView.className = "preview-content";
+        diffView.appendChild(renderDiff(svc.diffLines || []));
+
+        const fullView = document.createElement("div");
+        fullView.className = "preview-content hidden";
+        const pre = document.createElement("pre");
+        pre.textContent = svc.modifiedContent;
+        fullView.appendChild(pre);
+
+        viewWrapper.appendChild(diffView);
+        viewWrapper.appendChild(fullView);
+
+        diffTab.addEventListener("click", () => {
+            diffTab.classList.add("active");
+            fullTab.classList.remove("active");
+            diffView.classList.remove("hidden");
+            fullView.classList.add("hidden");
+        });
+        fullTab.addEventListener("click", () => {
+            fullTab.classList.add("active");
+            diffTab.classList.remove("active");
+            fullView.classList.remove("hidden");
+            diffView.classList.add("hidden");
+        });
+
+        details.appendChild(viewWrapper);
         output.appendChild(details);
     });
 }
@@ -410,6 +546,13 @@ $("generate-btn").addEventListener("click", async () => {
             confirmedVersion: sel.version
         });
     }
+
+    // Ensure coordinates are persisted before generation (user may have typed in the form without clicking Save)
+    await api.setCoordinates({
+        groupId: $("coord-group-id").value.trim() || "com.example",
+        artifactId: $("coord-artifact-id").value.trim() || "my-bom",
+        version: $("coord-version").value.trim() || "1.0.0"
+    });
 
     await api.setModules(state.modules);
     await api.confirm(assignments);
@@ -441,6 +584,32 @@ $("generate-btn").addEventListener("click", async () => {
     }
 });
 
+/* ---------- coordinates form ---------- */
+
+async function loadCoordinates() {
+    const coords = await api.getCoordinates();
+    $("coord-group-id").value = coords.groupId || "";
+    $("coord-artifact-id").value = coords.artifactId || "";
+    $("coord-version").value = coords.version || "";
+}
+
+$("save-coordinates-btn").addEventListener("click", async () => {
+    const btn = $("save-coordinates-btn");
+    btn.disabled = true;
+    try {
+        await api.setCoordinates({
+            groupId: $("coord-group-id").value.trim(),
+            artifactId: $("coord-artifact-id").value.trim(),
+            version: $("coord-version").value.trim()
+        });
+        btn.textContent = "Saved ✓";
+        setTimeout(() => { btn.textContent = "Save coordinates"; btn.disabled = false; }, 1200);
+    } catch (err) {
+        btn.disabled = false;
+        alert("Failed to save: " + err.message);
+    }
+});
+
 /* ---------- init ---------- */
 
 async function init() {
@@ -455,6 +624,7 @@ async function init() {
         renderModules();
         renderCandidates();
         renderPendingFiles();
+        await loadCoordinates();
     } catch (err) {
         console.error(err);
         alert("Failed to load session state: " + err.message);

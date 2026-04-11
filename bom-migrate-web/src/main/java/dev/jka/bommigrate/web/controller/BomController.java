@@ -2,6 +2,7 @@ package dev.jka.bommigrate.web.controller;
 
 import dev.jka.bommigrate.core.discovery.BomGenerationPlan;
 import dev.jka.bommigrate.core.discovery.BomGenerator;
+import dev.jka.bommigrate.core.discovery.CoordinateSuggester;
 import dev.jka.bommigrate.core.discovery.VersionFormat;
 import dev.jka.bommigrate.web.service.DiscoverySessionService;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +26,7 @@ public class BomController {
 
     private final DiscoverySessionService session;
     private final BomGenerator generator = new BomGenerator();
+    private final CoordinateSuggester coordinateSuggester = new CoordinateSuggester();
 
     public BomController(DiscoverySessionService session) {
         this.session = session;
@@ -65,5 +67,35 @@ public class BomController {
     public ResponseEntity<VersionFormatResponse> setVersionFormat(@RequestBody VersionFormatResponse request) {
         session.setVersionFormat(request.versionFormat());
         return ResponseEntity.ok(new VersionFormatResponse(session.getVersionFormat()));
+    }
+
+    public record CoordinatesResponse(String groupId, String artifactId, String version) {}
+
+    /**
+     * Returns the current BOM coordinates. If the session still has the
+     * built-in defaults, suggest a better groupId derived from the scanned
+     * POMs' common prefix so the UI can pre-fill the form.
+     */
+    @GetMapping("/coordinates")
+    public ResponseEntity<CoordinatesResponse> getCoordinates() {
+        String groupId = session.getParentGroupId();
+        String artifactId = session.getParentArtifactId();
+        String version = session.getParentVersion();
+
+        if ("com.example".equals(groupId) && "my-bom".equals(artifactId) && "1.0.0".equals(version)) {
+            CoordinateSuggester.Suggestion suggestion = coordinateSuggester.suggest(session.getScannedPomPaths());
+            return ResponseEntity.ok(new CoordinatesResponse(
+                    suggestion.groupId(), suggestion.artifactId(), suggestion.version()));
+        }
+        return ResponseEntity.ok(new CoordinatesResponse(groupId, artifactId, version));
+    }
+
+    @PostMapping("/coordinates")
+    public ResponseEntity<CoordinatesResponse> setCoordinates(@RequestBody CoordinatesResponse request) {
+        session.setParentCoordinates(request.groupId(), request.artifactId(), request.version());
+        return ResponseEntity.ok(new CoordinatesResponse(
+                session.getParentGroupId(),
+                session.getParentArtifactId(),
+                session.getParentVersion()));
     }
 }

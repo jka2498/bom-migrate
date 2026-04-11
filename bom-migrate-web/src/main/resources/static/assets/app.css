@@ -321,3 +321,126 @@ pre {
     font-size: 0.75rem;
 }
 
+/* Coordinates form */
+.coordinates-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: flex-end;
+    margin-top: 1rem;
+}
+.coordinates-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    color: #86868b;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.coordinates-form input[type="text"] {
+    min-width: 14rem;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+}
+
+/* Preview tabs inside each service preview row */
+.preview-view {
+    margin-top: 0.75rem;
+    border: 1px solid #e5e5ea;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.preview-tabs {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.35rem;
+    background: #f5f5f7;
+    border-bottom: 1px solid #e5e5ea;
+    align-items: center;
+}
+.preview-tab {
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 0.3rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    color: #515154;
+}
+.preview-tab:hover { background: #fff; }
+.preview-tab.active {
+    background: #fff;
+    border-color: #d2d2d7;
+    color: #1d1d1f;
+    font-weight: 600;
+}
+.preview-copy {
+    margin-left: auto;
+}
+.preview-content {
+    background: #fff;
+}
+.preview-content pre {
+    margin: 0;
+    padding: 1rem;
+    background: #fff;
+    border-radius: 0;
+}
+
+/* GitHub-style diff */
+.diff-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    background: #fff;
+}
+.diff-table td {
+    padding: 0.05rem 0.5rem;
+    border: none;
+    white-space: pre;
+    vertical-align: top;
+}
+.diff-line-num {
+    width: 3rem;
+    min-width: 3rem;
+    text-align: right;
+    color: #86868b;
+    user-select: none;
+    border-right: 1px solid #eaeaef;
+    background: #fafafa;
+}
+.diff-line {
+    padding-left: 0.5rem;
+    width: 100%;
+}
+.diff-marker {
+    display: inline-block;
+    width: 0.9rem;
+    color: #86868b;
+    user-select: none;
+}
+.diff-unchanged { background: #fff; }
+.diff-unchanged .diff-marker { color: #d2d2d7; }
+.diff-added {
+    background: #e6ffec;
+}
+.diff-added .diff-line-num { background: #ccffd8; color: #0b6b1a; }
+.diff-added .diff-marker { color: #0b6b1a; font-weight: 700; }
+.diff-removed {
+    background: #ffebe9;
+}
+.diff-removed .diff-line-num { background: #ffdce0; color: #b31d28; }
+.diff-removed .diff-marker { color: #b31d28; font-weight: 700; }
+.diff-collapsed td {
+    background: #f5f5f7;
+    color: #86868b;
+    font-style: italic;
+    text-align: center;
+    padding: 0.35rem;
+    font-size: 0.7rem;
+}
+

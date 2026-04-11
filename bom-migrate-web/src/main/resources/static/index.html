@@ -36,6 +36,17 @@
             <div id="sources-warnings"></div>
         </section>
 
+        <section id="coordinates-panel" class="panel">
+            <h2>BOM Coordinates</h2>
+            <p class="panel-hint">The groupId, artifactId and version for the generated BOM. <code>groupId</code> defaults to the common prefix detected across your scanned POMs.</p>
+            <div class="coordinates-form">
+                <label><span>groupId</span><input type="text" id="coord-group-id"/></label>
+                <label><span>artifactId</span><input type="text" id="coord-artifact-id"/></label>
+                <label><span>version</span><input type="text" id="coord-version"/></label>
+                <button id="save-coordinates-btn">Save coordinates</button>
+            </div>
+        </section>
+
         <section id="modules-panel" class="panel">
             <h2>BOM Modules</h2>
             <p>Define the modules to split your BOM into (leave empty for a single flat BOM).</p>
