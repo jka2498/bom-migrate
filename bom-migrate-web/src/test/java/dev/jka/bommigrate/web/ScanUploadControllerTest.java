@@ -120,4 +120,95 @@ class ScanUploadControllerTest {
         mockMvc.perform(multipart("/api/scan/upload"))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void uploadWithPathsUsesPathsForDisplayNamesAndLayout() throws Exception {
+        String pom = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project><modelVersion>4.0.0</modelVersion>
+                    <groupId>com.ex</groupId><artifactId>a</artifactId><version>1.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.google.guava</groupId>
+                            <artifactId>guava</artifactId>
+                            <version>33.0.0-jre</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """;
+        MockMultipartFile a = new MockMultipartFile("files", "pom.xml", "application/xml",
+                pom.getBytes(StandardCharsets.UTF_8));
+        MockMultipartFile b = new MockMultipartFile("files", "pom.xml", "application/xml",
+                pom.getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(multipart("/api/scan/upload")
+                        .file(a).file(b)
+                        .param("paths", "my-repo/service-a/pom.xml")
+                        .param("paths", "my-repo/service-b/pom.xml"))
+                .andExpect(status().isOk());
+
+        // Display names come from the paths field, not the raw filename
+        assertThat(session.getScanMetadata().scannedSources())
+                .containsExactly("my-repo/service-a/pom.xml", "my-repo/service-b/pom.xml");
+        // Files live under the sub-path on disk
+        assertThat(session.getScannedPomPaths().get(0).toString())
+                .endsWith("my-repo/service-a/pom.xml");
+        assertThat(session.getScannedPomPaths().get(1).toString())
+                .endsWith("my-repo/service-b/pom.xml");
+    }
+
+    @Test
+    void uploadWithTraversalPathFallsBackToSafeLayout() throws Exception {
+        String pom = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project><modelVersion>4.0.0</modelVersion>
+                    <groupId>com.ex</groupId><artifactId>a</artifactId><version>1.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.google.guava</groupId>
+                            <artifactId>guava</artifactId>
+                            <version>33.0.0-jre</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """;
+        MockMultipartFile file = new MockMultipartFile("files", "pom.xml", "application/xml",
+                pom.getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(multipart("/api/scan/upload")
+                        .file(file)
+                        .param("paths", "../../etc/passwd/pom.xml"))
+                .andExpect(status().isOk());
+
+        // Traversal must be rejected — falls back to the numbered layout
+        assertThat(session.getScanMetadata().scannedSources()).containsExactly("0/pom.xml");
+        assertThat(session.getScannedPomPaths().get(0).toString()).endsWith("0/pom.xml");
+    }
+
+    @Test
+    void uploadClearsLastGeneratedSignature() throws Exception {
+        // Seed a stale signature, then upload — it should be cleared.
+        session.setLastGeneratedSignature("stale");
+
+        String pom = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project><modelVersion>4.0.0</modelVersion>
+                    <groupId>com.ex</groupId><artifactId>a</artifactId><version>1.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.google.guava</groupId>
+                            <artifactId>guava</artifactId>
+                            <version>33.0.0-jre</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """;
+        MockMultipartFile file = new MockMultipartFile("files", "pom.xml", "application/xml",
+                pom.getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(multipart("/api/scan/upload").file(file))
+                .andExpect(status().isOk());
+
+        assertThat(session.getLastGeneratedSignature()).isNull();
+    }
 }

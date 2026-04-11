@@ -211,7 +211,8 @@ pre {
     flex-wrap: wrap;
     margin-top: 1rem;
 }
-#pom-file-input {
+#pom-file-input,
+#pom-folder-input {
     display: none;
 }
 .file-label {
@@ -243,10 +244,46 @@ pre {
     border-radius: 6px;
     font-family: "SF Mono", Menlo, Consolas, monospace;
     font-size: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
 }
-#upload-btn:disabled {
+.file-remove {
+    background: none;
+    border: none;
+    color: #86868b;
+    cursor: pointer;
+    padding: 0;
+    font-size: 0.9rem;
+    line-height: 1;
+}
+.file-remove:hover { color: #ff3b30; }
+#upload-btn:disabled,
+#clear-files-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+/* Stale BOM banner */
+.stale-banner {
+    background: #fff8ed;
+    border-left: 4px solid #ff9500;
+    border-radius: 8px;
+    padding: 0.9rem 1.25rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+    color: #6a3c00;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.stale-banner strong { color: #8a5100; }
+.stale-banner em {
+    background: #fff3e0;
+    padding: 0.05rem 0.35rem;
+    border-radius: 4px;
+    font-style: normal;
+    font-weight: 600;
 }
 
 /* Migration preview panel */

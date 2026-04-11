@@ -15,11 +15,14 @@
     <main>
         <section id="upload-panel" class="panel">
             <h2>Source POMs</h2>
-            <p class="panel-hint">Pick one or more <code>pom.xml</code> files to analyse. Files are uploaded and scanned — the originals on your disk are never modified.</p>
+            <p class="panel-hint">Pick one or more <code>pom.xml</code> files, or pick a folder and we'll find every <code>pom.xml</code> inside it. Files are uploaded and scanned — the originals on your disk are never modified.</p>
             <div class="upload-controls">
                 <label for="pom-file-input" class="file-label">Choose POM files…</label>
                 <input type="file" id="pom-file-input" accept=".xml" multiple/>
+                <label for="pom-folder-input" class="file-label">Choose folder…</label>
+                <input type="file" id="pom-folder-input" webkitdirectory directory multiple/>
                 <span id="file-count" class="file-count">No files selected</span>
+                <button id="clear-files-btn" type="button">Clear all</button>
                 <button id="upload-btn" class="primary" disabled>Scan selected POMs</button>
             </div>
             <ul id="selected-files-list" class="file-list"></ul>
@@ -90,6 +93,11 @@
                 <button id="generate-btn" class="primary">Generate BOM</button>
             </div>
         </section>
+
+        <div id="stale-banner" class="stale-banner hidden">
+            <strong>Your BOM is out of date.</strong>
+            <span>You've changed coordinates, modules, or assignments since it was last generated. Click <em>Generate BOM</em> to refresh the preview.</span>
+        </div>
 
         <section id="result-panel" class="panel hidden">
             <h2>Generated BOM</h2>

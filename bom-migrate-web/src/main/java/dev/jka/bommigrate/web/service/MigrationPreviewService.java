@@ -56,6 +56,17 @@ public class MigrationPreviewService {
             throw new IllegalStateException("No BOM has been generated yet");
         }
 
+        // Staleness guard: the on-disk BOM was written for a specific snapshot
+        // of coordinates/modules/assignments/versionFormat. If any of those
+        // have changed since, the preview we'd build against it would be a
+        // lie. Force the user to regenerate.
+        String expected = session.getLastGeneratedSignature();
+        String current = session.computeCurrentSignature();
+        if (expected == null || !expected.equals(current)) {
+            throw new StalePreviewException(
+                    "Generated BOM is out of date with the current session state; regenerate it");
+        }
+
         DependencyManagementMap bomMap = bomResolver.resolve(outputDir, true);
 
         List<BomImportInserter.BomImport> imports = buildBomImports();
