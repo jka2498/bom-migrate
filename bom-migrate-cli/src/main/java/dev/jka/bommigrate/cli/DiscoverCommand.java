@@ -95,8 +95,8 @@ public class DiscoverCommand implements Callable<Integer> {
             description = "Override the temp directory for clones")
     Path cloneDir;
 
-    @Option(names = "--output-dir", defaultValue = ".",
-            description = "Directory to write the generated BOM into")
+    @Option(names = "--output-dir", defaultValue = "./generated-bom",
+            description = "Directory to write the generated BOM into (default: ./generated-bom)")
     Path outputDir;
 
     @Option(names = "--bom-group-id", defaultValue = "com.example",

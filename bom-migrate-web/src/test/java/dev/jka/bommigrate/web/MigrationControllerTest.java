@@ -45,6 +45,9 @@ class MigrationControllerTest {
         session.setReport(DiscoveryReport.empty());
         session.setOutputDir(null);
         session.setScannedPomPaths(List.of());
+        session.setModules(List.of());
+        session.setAssignments(List.of());
+        session.setParentCoordinates("com.example", "my-bom", "1.0.0");
     }
 
     @Test
@@ -107,6 +110,77 @@ class MigrationControllerTest {
                 .andExpect(jsonPath("$.bomImportSnippet").value(org.hamcrest.Matchers.containsString("<scope>import</scope>")))
                 .andExpect(jsonPath("$.services[0].displayName").value("service-a/pom.xml"))
                 .andExpect(jsonPath("$.services[0].stripCount").value(1))
-                .andExpect(jsonPath("$.services[0].modifiedContent").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("<version>33.0.0-jre</version>"))));
+                // Version tag is stripped
+                .andExpect(jsonPath("$.services[0].modifiedContent").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("<version>33.0.0-jre</version>"))))
+                // BOM import is inserted into the modified content
+                .andExpect(jsonPath("$.services[0].modifiedContent").value(org.hamcrest.Matchers.containsString("<dependencyManagement>")))
+                .andExpect(jsonPath("$.services[0].modifiedContent").value(org.hamcrest.Matchers.containsString("<scope>import</scope>")))
+                // Structured diff is populated
+                .andExpect(jsonPath("$.services[0].diffLines").isArray())
+                .andExpect(jsonPath("$.services[0].diffLines[?(@.status == 'REMOVED')]").exists())
+                .andExpect(jsonPath("$.services[0].diffLines[?(@.status == 'ADDED')]").exists());
+    }
+
+    @Test
+    void multiModuleSnippetContainsAllChildBoms(@TempDir Path tempDir) throws Exception {
+        BomCandidate guava = new BomCandidate(
+                "com.google.guava", "guava",
+                Map.of("33.0.0-jre", 1),
+                1, 1, "33.0.0-jre", ConflictSeverity.NONE, 0.95);
+        BomCandidate slf4j = new BomCandidate(
+                "org.slf4j", "slf4j-api",
+                Map.of("2.0.9", 1),
+                1, 1, "2.0.9", ConflictSeverity.NONE, 0.90);
+
+        BomModule backendCore = new BomModule("backend-core");
+        BomModule misc = new BomModule("misc");
+
+        BomGenerationPlan plan = new BomGenerationPlan(
+                "com.example", "my-bom", "1.0.0",
+                List.of(backendCore, misc),
+                List.of(
+                        new BomModuleAssignment(guava, backendCore, "33.0.0-jre"),
+                        new BomModuleAssignment(slf4j, misc, "2.0.9")
+                )
+        );
+        Path bomDir = tempDir.resolve("bom");
+        Files.createDirectories(bomDir);
+        new BomGenerator().writeTo(plan, bomDir);
+
+        Path servicePom = tempDir.resolve("service-x-pom.xml");
+        Files.writeString(servicePom, """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>com.example</groupId>
+                    <artifactId>service-x</artifactId>
+                    <version>1.0.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.google.guava</groupId>
+                            <artifactId>guava</artifactId>
+                            <version>33.0.0-jre</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """, StandardCharsets.UTF_8);
+
+        session.setOutputDir(bomDir);
+        session.setScannedPomPaths(List.of(servicePom));
+        session.setScanMetadata(dev.jka.bommigrate.core.discovery.ScanMetadata.localOnly(List.of("service-x/pom.xml")));
+        session.setParentCoordinates("com.example", "my-bom", "1.0.0");
+        session.setModules(List.of(backendCore, misc));
+        session.setReport(new DiscoveryReport(List.of(guava, slf4j), 1, Instant.now()));
+
+        mockMvc.perform(get("/api/migration/preview"))
+                .andExpect(status().isOk())
+                // Both child BOMs should be in the import snippet
+                .andExpect(jsonPath("$.bomImportSnippet").value(org.hamcrest.Matchers.containsString("<artifactId>backend-core</artifactId>")))
+                .andExpect(jsonPath("$.bomImportSnippet").value(org.hamcrest.Matchers.containsString("<artifactId>misc</artifactId>")))
+                // Parent BOM (aggregator) must NOT appear in the snippet
+                .andExpect(jsonPath("$.bomImportSnippet").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("<artifactId>my-bom</artifactId>"))))
+                // Each service's modified POM also gets both imports
+                .andExpect(jsonPath("$.services[0].modifiedContent").value(org.hamcrest.Matchers.containsString("<artifactId>backend-core</artifactId>")))
+                .andExpect(jsonPath("$.services[0].modifiedContent").value(org.hamcrest.Matchers.containsString("<artifactId>misc</artifactId>")));
     }
 }

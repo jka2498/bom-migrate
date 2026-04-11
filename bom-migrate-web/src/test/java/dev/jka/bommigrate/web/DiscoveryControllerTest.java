@@ -166,4 +166,30 @@ class DiscoveryControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.files['pom.xml']").exists());
     }
+
+    @Test
+    void getCoordinatesReturnsSessionValues() throws Exception {
+        session.setParentCoordinates("com.acme", "acme-bom", "2.0.0");
+        mockMvc.perform(get("/api/bom/coordinates"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groupId").value("com.acme"))
+                .andExpect(jsonPath("$.artifactId").value("acme-bom"))
+                .andExpect(jsonPath("$.version").value("2.0.0"));
+    }
+
+    @Test
+    void postCoordinatesPersistsValues() throws Exception {
+        mockMvc.perform(post("/api/bom/coordinates")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"groupId\":\"com.acme\",\"artifactId\":\"big-bom\",\"version\":\"3.1.4\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groupId").value("com.acme"))
+                .andExpect(jsonPath("$.artifactId").value("big-bom"))
+                .andExpect(jsonPath("$.version").value("3.1.4"));
+
+        // Subsequent GET returns the new values
+        mockMvc.perform(get("/api/bom/coordinates"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groupId").value("com.acme"));
+    }
 }
