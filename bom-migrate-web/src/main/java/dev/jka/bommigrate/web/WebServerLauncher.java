@@ -40,6 +40,7 @@ public final class WebServerLauncher {
     public static ConfigurableApplicationContext start(
             DiscoveryReport report,
             ScanMetadata scanMetadata,
+            List<Path> scannedPomPaths,
             List<BomModule> initialModules,
             int requestedPort,
             Path outputDir,
@@ -57,6 +58,7 @@ public final class WebServerLauncher {
         DiscoverySessionService session = context.getBean(DiscoverySessionService.class);
         session.setReport(report);
         session.setScanMetadata(scanMetadata);
+        session.setScannedPomPaths(scannedPomPaths);
         session.setModules(initialModules);
         session.setOutputDir(outputDir);
         session.setParentCoordinates(parentGroupId, parentArtifactId, parentVersion);

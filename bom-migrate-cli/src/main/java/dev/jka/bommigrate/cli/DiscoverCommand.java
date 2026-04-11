@@ -7,6 +7,11 @@ import dev.jka.bommigrate.core.discovery.DependencyFrequencyAnalyser;
 import dev.jka.bommigrate.core.discovery.DiscoveryReport;
 import dev.jka.bommigrate.core.discovery.ScanMetadata;
 import dev.jka.bommigrate.core.discovery.VersionFormat;
+import dev.jka.bommigrate.core.migrator.PomAnalyzer;
+import dev.jka.bommigrate.core.migrator.PomWriter;
+import dev.jka.bommigrate.core.model.DependencyManagementMap;
+import dev.jka.bommigrate.core.model.MigrationReport;
+import dev.jka.bommigrate.core.resolver.DefaultBomResolver;
 import dev.jka.bommigrate.github.ClonedRepo;
 import dev.jka.bommigrate.github.OrgScanResult;
 import dev.jka.bommigrate.github.OrgScanner;
@@ -33,7 +38,7 @@ import java.util.concurrent.Callable;
 )
 public class DiscoverCommand implements Callable<Integer> {
 
-    @ArgGroup(exclusive = true, multiplicity = "1")
+    @ArgGroup(exclusive = true, multiplicity = "0..1")
     TargetSource targetSource;
 
     static class TargetSource {
@@ -125,20 +130,69 @@ public class DiscoverCommand implements Callable<Integer> {
     }
 
     private int execute() throws IOException {
-        // 1. Gather target POMs (local or from org) with metadata
-        ScanResult scan;
-        if (targetSource.org != null) {
-            scan = fetchFromOrg();
-        } else {
-            scan = discoverLocalPoms();
+        // Validate: non-web mode requires a target source
+        boolean hasTarget = targetSource != null
+                && (targetSource.org != null || (targetSource.targetPaths != null && !targetSource.targetPaths.isEmpty()));
+        if (!web && !hasTarget) {
+            System.err.println("Error: discover requires --target or --org (unless --web is used for empty start).");
+            return 1;
         }
 
+        List<BomModule> modules = ModuleDefinitionWizard.parseModuleList(bomModules);
+
+        // Web mode starts the server regardless of whether we have a target.
+        // If a target is provided, we scan first and seed the session.
+        // If no target, the server starts empty and the user uploads POMs via the UI.
+        if (web) {
+            DiscoveryReport report;
+            ScanMetadata metadata;
+            List<Path> scannedPomPaths;
+
+            if (hasTarget) {
+                ScanResult scan = gatherScan();
+                if (scan.pomPaths.isEmpty()) {
+                    System.err.println("No target POM files found.");
+                    return 1;
+                }
+                System.out.println("Analysing " + scan.pomPaths.size() + " POM(s)...");
+                report = new DependencyFrequencyAnalyser().analyse(scan.pomPaths, minFrequency);
+                metadata = scan.metadata;
+                scannedPomPaths = scan.pomPaths;
+
+                DiscoveryReportFormatter formatter = new DiscoveryReportFormatter();
+                System.out.println();
+                System.out.println(formatter.formatSummary(report));
+                printScannedSources(metadata);
+            } else {
+                System.out.println("Starting web UI with no pre-scanned POMs. Upload files from the browser.");
+                report = DiscoveryReport.empty();
+                metadata = ScanMetadata.empty();
+                scannedPomPaths = List.of();
+            }
+
+            if (alsoMigrate) {
+                System.err.println("[WARN] --also-migrate is ignored in --web mode. "
+                        + "Use the web UI's migration preview to copy modified POMs instead.");
+            }
+
+            try {
+                WebServerLauncher.start(report, metadata, scannedPomPaths, modules, webPort, outputDir,
+                        bomGroupId, bomArtifactId, bomVersion, versionFormat);
+                System.out.println("Press Ctrl+C to stop the web server when done.");
+                Thread.currentThread().join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return 0;
+        }
+
+        // Non-web path: target is required (already validated above)
+        ScanResult scan = gatherScan();
         if (scan.pomPaths.isEmpty()) {
             System.err.println("No target POM files found.");
             return 1;
         }
 
-        // 2. Run discovery analysis
         System.out.println("Analysing " + scan.pomPaths.size() + " POM(s)...");
         DependencyFrequencyAnalyser analyser = new DependencyFrequencyAnalyser();
         DiscoveryReport report = analyser.analyse(scan.pomPaths, minFrequency);
@@ -148,51 +202,113 @@ public class DiscoverCommand implements Callable<Integer> {
         System.out.println(formatter.formatSummary(report));
         printScannedSources(scan.metadata);
 
-        // 3. Determine BOM modules
-        List<BomModule> modules = ModuleDefinitionWizard.parseModuleList(bomModules);
+        boolean interactive = System.console() != null;
 
-        // 4. Interactive review (web or CLI wizard)
-        if (web) {
-            try {
-                WebServerLauncher.start(report, scan.metadata, modules, webPort, outputDir,
-                        bomGroupId, bomArtifactId, bomVersion, versionFormat);
-                System.out.println("Press Ctrl+C to stop the web server when done.");
-                // Block the main thread so the server stays up
-                Thread.currentThread().join();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+        // Non-interactive or dry-run without --also-migrate: print full report and return
+        if ((!interactive || dryRun) && !alsoMigrate) {
+            if (!interactive) {
+                System.err.println("No interactive terminal detected. Printing full report only.");
             }
-            return 0;
-        }
-
-        if (System.console() == null && !dryRun) {
-            System.err.println("No interactive terminal detected. Printing full report only.");
             for (int i = 0; i < report.candidates().size(); i++) {
                 System.out.println(formatter.formatCandidate(report.candidates().get(i), i + 1, report.candidates().size()));
             }
             return 0;
         }
 
-        if (dryRun) {
-            for (int i = 0; i < report.candidates().size(); i++) {
-                System.out.println(formatter.formatCandidate(report.candidates().get(i), i + 1, report.candidates().size()));
-            }
-            return 0;
+        // Build the plan: interactive wizard if we have a terminal, otherwise auto-accept
+        // all candidates into the default module (needed for --dry-run --also-migrate
+        // and for pure non-interactive CI usage with --also-migrate).
+        BomGenerationPlan plan;
+        if (interactive && !dryRun) {
+            CandidateReviewWizard wizard = new CandidateReviewWizard();
+            plan = wizard.review(report, modules, bomGroupId, bomArtifactId, bomVersion, versionFormat);
+        } else {
+            plan = autoAcceptAllCandidates(report, modules);
         }
 
-        CandidateReviewWizard wizard = new CandidateReviewWizard();
-        BomGenerationPlan plan = wizard.review(report, modules, bomGroupId, bomArtifactId, bomVersion, versionFormat);
-
-        // 5. Generate BOM
+        // 5. Generate BOM (to outputDir normally, temp dir in dry-run so we don't touch the user's FS)
+        Path bomDir = dryRun ? Files.createTempDirectory("bom-migrate-dryrun-") : outputDir;
         System.out.println();
-        System.out.println("Generating BOM at: " + outputDir.toAbsolutePath());
+        System.out.println(dryRun
+                ? "Generating BOM in dry-run temp dir: " + bomDir.toAbsolutePath()
+                : "Generating BOM at: " + bomDir.toAbsolutePath());
         BomGenerator generator = new BomGenerator();
-        List<Path> written = generator.writeTo(plan, outputDir);
-        for (Path p : written) {
-            System.out.println("  wrote " + p);
+        List<Path> written = generator.writeTo(plan, bomDir);
+        if (!dryRun) {
+            for (Path p : written) {
+                System.out.println("  wrote " + p);
+            }
+        }
+
+        // 6. Optionally run migration against the same scanned services using the just-generated BOM
+        if (alsoMigrate) {
+            System.out.println();
+            System.out.println("Running migration against " + scan.pomPaths.size() + " scanned service(s)...");
+            runMigration(scan.pomPaths, bomDir);
         }
 
         return 0;
+    }
+
+    /**
+     * Non-interactive fallback: accept every candidate at its suggested version,
+     * all into the first (default) module. Used for --dry-run and CI scenarios
+     * where we need a concrete plan without user input.
+     */
+    private BomGenerationPlan autoAcceptAllCandidates(DiscoveryReport report, List<BomModule> modules) {
+        BomModule target = modules.get(0);
+        List<dev.jka.bommigrate.core.discovery.BomModuleAssignment> assignments = new ArrayList<>();
+        for (dev.jka.bommigrate.core.discovery.BomCandidate c : report.candidates()) {
+            assignments.add(new dev.jka.bommigrate.core.discovery.BomModuleAssignment(
+                    c, target, c.suggestedVersion()));
+        }
+        return new BomGenerationPlan(
+                bomGroupId, bomArtifactId, bomVersion,
+                modules, assignments, versionFormat);
+    }
+
+    private ScanResult gatherScan() throws IOException {
+        if (targetSource != null && targetSource.org != null) {
+            return fetchFromOrg();
+        }
+        return discoverLocalPoms();
+    }
+
+    /**
+     * Runs migration against each scanned service using the just-generated BOM.
+     * Honours {@code --dry-run} (prints diffs only) vs apply mode (writes changes back).
+     */
+    private void runMigration(List<Path> servicePoms, Path bomDir) throws IOException {
+        DefaultBomResolver resolver = new DefaultBomResolver();
+        DependencyManagementMap bomMap = resolver.resolve(bomDir, true);
+
+        PomAnalyzer analyser = new PomAnalyzer();
+        PomWriter writer = new PomWriter();
+        ReportFormatter formatter = new ReportFormatter();
+        int applied = 0;
+
+        for (Path servicePom : servicePoms) {
+            MigrationReport report = analyser.analyze(servicePom, bomMap);
+            System.out.println(formatter.format(report));
+
+            if (!report.hasChanges()) {
+                System.out.println();
+                continue;
+            }
+
+            if (dryRun) {
+                System.out.println(writer.generateDiff(servicePom, report));
+            } else {
+                String modified = writer.applyStrips(servicePom, report);
+                writer.writeTo(servicePom, modified);
+                System.out.println("  Changes applied to " + servicePom);
+                applied++;
+            }
+            System.out.println();
+        }
+
+        System.out.println("Migration complete. "
+                + (dryRun ? "Dry run — no files were modified." : applied + " file(s) modified."));
     }
 
     private ScanResult fetchFromOrg() throws IOException {

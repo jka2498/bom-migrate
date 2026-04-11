@@ -202,3 +202,122 @@ pre {
     color: #fff;
     border-color: #34c759;
 }
+
+/* Upload panel */
+.upload-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+}
+#pom-file-input {
+    display: none;
+}
+.file-label {
+    display: inline-block;
+    background: #fff;
+    border: 1px solid #d2d2d7;
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+.file-label:hover { background: #f5f5f7; }
+.file-count {
+    color: #86868b;
+    font-size: 0.85rem;
+}
+.file-list {
+    list-style: none;
+    padding: 0;
+    margin: 0.75rem 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+.file-list li {
+    background: #f5f5f7;
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+}
+#upload-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Migration preview panel */
+#migration-summary {
+    color: #515154;
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+    font-weight: 500;
+}
+.service-preview {
+    border: 1px solid #e5e5ea;
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.75rem;
+}
+.service-preview > summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+}
+.service-preview > summary::-webkit-details-marker { display: none; }
+.service-preview > summary::before {
+    content: "▶";
+    display: inline-block;
+    font-size: 0.7rem;
+    color: #86868b;
+    transition: transform 0.15s;
+    margin-right: 0.5rem;
+}
+.service-preview[open] > summary::before { transform: rotate(90deg); }
+.service-preview .counts {
+    display: flex;
+    gap: 0.5rem;
+}
+.count {
+    padding: 0.15rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+.count-strip { background: #e6f8ea; color: #0b6b1a; }
+.count-flag { background: #fff3e0; color: #8a5100; }
+.count-skip { background: #f0f0f5; color: #515154; }
+.flagged-list {
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: #fff8ed;
+    border-left: 3px solid #ff9500;
+    border-radius: 6px;
+}
+.flagged-list h4 {
+    margin: 0 0 0.5rem;
+    font-size: 0.8rem;
+    color: #8a5100;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.flagged-list ul {
+    margin: 0;
+    padding-left: 1rem;
+    font-size: 0.8rem;
+    color: #515154;
+}
+.flagged-list code {
+    background: #f5f5f7;
+    padding: 0.05rem 0.3rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+}
+

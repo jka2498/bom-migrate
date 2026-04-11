@@ -13,6 +13,18 @@
     </header>
 
     <main>
+        <section id="upload-panel" class="panel">
+            <h2>Source POMs</h2>
+            <p class="panel-hint">Pick one or more <code>pom.xml</code> files to analyse. Files are uploaded and scanned — the originals on your disk are never modified.</p>
+            <div class="upload-controls">
+                <label for="pom-file-input" class="file-label">Choose POM files…</label>
+                <input type="file" id="pom-file-input" accept=".xml" multiple/>
+                <span id="file-count" class="file-count">No files selected</span>
+                <button id="upload-btn" class="primary" disabled>Scan selected POMs</button>
+            </div>
+            <ul id="selected-files-list" class="file-list"></ul>
+        </section>
+
         <section id="sources-panel" class="panel">
             <h2>Scanned Sources</h2>
             <p class="panel-hint">These are the POM files that were analysed for this report.</p>
@@ -71,6 +83,19 @@
         <section id="result-panel" class="panel hidden">
             <h2>Generated BOM</h2>
             <div id="result-output"></div>
+        </section>
+
+        <section id="import-snippet-panel" class="panel hidden">
+            <h2>Import this BOM</h2>
+            <p class="panel-hint">Paste this into the <code>&lt;dependencyManagement&gt;</code> of each service POM to pick up all managed versions from the generated BOM.</p>
+            <div id="import-snippet-container"></div>
+        </section>
+
+        <section id="migration-panel" class="panel hidden">
+            <h2>Updated service POMs</h2>
+            <p class="panel-hint">Preview of what each scanned service's POM would look like after applying the BOM. Copy and paste into your real files — nothing is written automatically.</p>
+            <div id="migration-summary"></div>
+            <div id="migration-output"></div>
         </section>
     </main>
 

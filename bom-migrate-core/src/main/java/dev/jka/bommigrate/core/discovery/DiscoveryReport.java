@@ -21,6 +21,11 @@ public record DiscoveryReport(
         candidates = Collections.unmodifiableList(candidates);
     }
 
+    /** An empty report, used as a placeholder when the web server is started with no scan yet. */
+    public static DiscoveryReport empty() {
+        return new DiscoveryReport(List.of(), 0, Instant.now());
+    }
+
     /** Candidates whose versions differ across services. */
     public List<BomCandidate> conflicting() {
         return candidates.stream()
@@ -40,3 +45,4 @@ public record DiscoveryReport(
                 .toList();
     }
 }
+
