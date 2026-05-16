@@ -18,7 +18,8 @@ And if you **don't** have a BOM yet, figuring out which dependencies to include 
    - **STRIP** — version matches the BOM exactly, safe to remove the `<version>` tag
    - **FLAG** — version is managed by the BOM but differs, needs human review
    - **SKIP** — not managed by the BOM, left untouched
-4. **Applies** changes while preserving POM formatting (no reformatting of untouched lines)
+4. **Multi-module aware** — if the service imports only some child modules of a multi-module BOM (e.g. `backend` but not `misc`), only deps from those imported modules are considered for stripping
+5. **Applies** changes while preserving POM formatting (no reformatting of untouched lines)
 5. **Cleans up** orphaned version properties (e.g. `<guava.version>`) if no longer referenced
 6. **Reports** clearly what was changed, flagged, and skipped
 
@@ -240,6 +241,7 @@ bom-migrate/
 
 - Property-based versions in both BOMs and microservice POMs
 - Multi-module BOM structures (parent aggregator + child BOM modules)
+- Per-service child-module matching — only strips deps from child BOMs the service actually imports (safe when services adopt modules incrementally)
 - BOM importing other BOMs (configurable transitive resolution)
 - Version ranges (detected and skipped)
 - Classifier and type variants (exact `groupId:artifactId:type:classifier` matching)
