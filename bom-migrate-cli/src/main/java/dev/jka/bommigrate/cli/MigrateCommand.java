@@ -82,6 +82,10 @@ public class MigrateCommand implements Callable<Integer> {
             description = "Override the temp directory for clones")
     Path cloneDir;
 
+    @Option(names = "--include-plugins", defaultValue = "false",
+            description = "Also strip plugin <version> tags managed by the BOM's <pluginManagement>")
+    boolean includePlugins;
+
     @Override
     public Integer call() {
         try {
@@ -132,6 +136,15 @@ public class MigrateCommand implements Callable<Integer> {
             return 1;
         }
 
+        // Resolve plugin management map if opted in
+        DependencyManagementMap pluginBomMap = DependencyManagementMap.EMPTY;
+        if (includePlugins) {
+            pluginBomMap = resolvePluginManagement(bomModel);
+            if (pluginBomMap.size() > 0) {
+                System.out.println("BOM also manages " + pluginBomMap.size() + " plugins.\n");
+            }
+        }
+
         // Analyze each target
         PomAnalyzer analyzer = new PomAnalyzer();
         PomWriter writer = new PomWriter();
@@ -145,7 +158,9 @@ public class MigrateCommand implements Callable<Integer> {
                     pomFile, bomPath, fullBomMap, bomGroupId, bomArtifactId, childModules);
             DependencyManagementMap bomMap = matchResult.effectiveBomMap();
 
-            MigrationReport report = analyzer.analyze(pomFile, bomMap);
+            MigrationReport report = includePlugins
+                    ? analyzer.analyze(pomFile, bomMap, pluginBomMap)
+                    : analyzer.analyze(pomFile, bomMap);
             reports.add(report);
             System.out.println(formatter.format(report));
 
@@ -237,6 +252,32 @@ public class MigrateCommand implements Callable<Integer> {
             }
         }
         return pomFiles;
+    }
+
+    /**
+     * Extracts managed plugins from the BOM's {@code <build><pluginManagement>}
+     * section into a {@link DependencyManagementMap} keyed by groupId:artifactId.
+     * Uses jar type (default) for key construction so lookups match.
+     */
+    private DependencyManagementMap resolvePluginManagement(Model bomModel) {
+        if (bomModel.getBuild() == null || bomModel.getBuild().getPluginManagement() == null) {
+            return DependencyManagementMap.EMPTY;
+        }
+        var plugins = bomModel.getBuild().getPluginManagement().getPlugins();
+        if (plugins == null || plugins.isEmpty()) {
+            return DependencyManagementMap.EMPTY;
+        }
+        dev.jka.bommigrate.core.resolver.PropertyInterpolator interpolator =
+                PomModelReader.buildInterpolator(bomModel);
+        List<dev.jka.bommigrate.core.model.ResolvedDependency> resolved = new ArrayList<>();
+        for (var plugin : plugins) {
+            String groupId = plugin.getGroupId() != null ? plugin.getGroupId() : "org.apache.maven.plugins";
+            String artifactId = plugin.getArtifactId();
+            String version = plugin.getVersion() != null ? interpolator.interpolate(plugin.getVersion()) : "";
+            resolved.add(new dev.jka.bommigrate.core.model.ResolvedDependency(
+                    groupId, artifactId, version, "jar", ""));
+        }
+        return new DependencyManagementMap(resolved);
     }
 
     private String resolveGitHubToken() {

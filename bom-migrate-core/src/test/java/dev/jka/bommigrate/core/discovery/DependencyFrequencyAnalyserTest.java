@@ -114,6 +114,36 @@ class DependencyFrequencyAnalyserTest {
         assertThat(guava.score()).isGreaterThan(slf4j.score());
     }
 
+    @Test
+    void includePluginsDiscoversMavenPlugins() throws IOException {
+        Path pluginPom = Path.of("src/test/resources/fixtures/discovery/service-with-plugins.xml");
+        DiscoveryReport report = analyser.analyse(List.of(pluginPom), 1, true);
+
+        assertThat(report.pluginCandidates()).isNotEmpty();
+        BomCandidate compiler = report.pluginCandidates().stream()
+                .filter(c -> c.key().equals("org.apache.maven.plugins:maven-compiler-plugin"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(compiler.suggestedVersion()).isEqualTo("3.13.0");
+        assertThat(compiler.serviceCount()).isEqualTo(1);
+
+        BomCandidate surefire = report.pluginCandidates().stream()
+                .filter(c -> c.key().equals("org.apache.maven.plugins:maven-surefire-plugin"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(surefire.suggestedVersion()).isEqualTo("3.5.0");
+    }
+
+    @Test
+    void pluginsNotReturnedWhenIncludePluginsIsFalse() throws IOException {
+        Path pluginPom = Path.of("src/test/resources/fixtures/discovery/service-with-plugins.xml");
+        DiscoveryReport report = analyser.analyse(List.of(pluginPom), 1, false);
+
+        assertThat(report.pluginCandidates()).isEmpty();
+        // Dependencies should still be found
+        assertThat(report.candidates()).isNotEmpty();
+    }
+
     private BomCandidate findByKey(DiscoveryReport report, String key) {
         return report.candidates().stream()
                 .filter(c -> c.key().equals(key))
