@@ -27,7 +27,7 @@ main {
 }
 .panel h2 { margin-top: 0; font-size: 1.125rem; }
 .panel-hint { color: #86868b; font-size: 0.85rem; margin: 0 0 0.75rem; }
-.hidden { display: none; }
+.hidden { display: none !important; }
 
 #sources-panel #sources-summary {
     color: #1d1d1f;
