@@ -310,6 +310,22 @@ public class DiscoverCommand implements Callable<Integer> {
         List<String> childMods = bomModel.getModules() != null ? bomModel.getModules() : List.of();
         ServiceBomMatcher matcher = new ServiceBomMatcher();
 
+        // Resolve plugin management from the parent POM if plugins were included
+        DependencyManagementMap pluginBomMap = DependencyManagementMap.EMPTY;
+        if (includePlugins && bomModel.getBuild() != null
+                && bomModel.getBuild().getPluginManagement() != null) {
+            dev.jka.bommigrate.core.resolver.PropertyInterpolator interpolator =
+                    PomModelReader.buildInterpolator(bomModel);
+            List<dev.jka.bommigrate.core.model.ResolvedDependency> resolved = new ArrayList<>();
+            for (var plugin : bomModel.getBuild().getPluginManagement().getPlugins()) {
+                String groupId = plugin.getGroupId() != null ? plugin.getGroupId() : "org.apache.maven.plugins";
+                String version = plugin.getVersion() != null ? interpolator.interpolate(plugin.getVersion()) : "";
+                resolved.add(new dev.jka.bommigrate.core.model.ResolvedDependency(
+                        groupId, plugin.getArtifactId(), version, "jar", ""));
+            }
+            pluginBomMap = new DependencyManagementMap(resolved);
+        }
+
         PomAnalyzer analyser = new PomAnalyzer();
         PomWriter writer = new PomWriter();
         ReportFormatter formatter = new ReportFormatter();
@@ -319,7 +335,9 @@ public class DiscoverCommand implements Callable<Integer> {
             ServiceBomMatcher.MatchResult matchResult = matcher.match(
                     servicePom, bomDir, fullBomMap, bomGid, bomAid, childMods);
             DependencyManagementMap bomMap = matchResult.effectiveBomMap();
-            MigrationReport report = analyser.analyze(servicePom, bomMap);
+            MigrationReport report = includePlugins
+                    ? analyser.analyze(servicePom, bomMap, pluginBomMap)
+                    : analyser.analyze(servicePom, bomMap);
             System.out.println(formatter.format(report));
 
             if (!report.hasChanges()) {
