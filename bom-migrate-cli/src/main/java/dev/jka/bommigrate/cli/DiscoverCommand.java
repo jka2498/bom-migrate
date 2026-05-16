@@ -219,6 +219,13 @@ public class DiscoverCommand implements Callable<Integer> {
             for (int i = 0; i < report.candidates().size(); i++) {
                 System.out.println(formatter.formatCandidate(report.candidates().get(i), i + 1, report.candidates().size()));
             }
+            if (!report.pluginCandidates().isEmpty()) {
+                System.out.println("\n" + formatter.formatPluginHeader());
+                for (int i = 0; i < report.pluginCandidates().size(); i++) {
+                    System.out.println(formatter.formatCandidate(
+                            report.pluginCandidates().get(i), i + 1, report.pluginCandidates().size()));
+                }
+            }
             return 0;
         }
 
