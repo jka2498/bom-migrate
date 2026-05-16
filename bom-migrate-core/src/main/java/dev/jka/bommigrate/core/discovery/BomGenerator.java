@@ -59,15 +59,15 @@ public final class BomGenerator {
             return result;
         }
 
-        // Multi-module: aggregator parent + one child per module
+        // Multi-module: aggregator parent + one child per module.
+        // pluginManagement goes in the parent (only propagates via inheritance),
+        // dependencyManagement goes in child modules (importable via scope=import).
         result.put("pom.xml", generateAggregatorParent(plan));
         Map<BomModule, List<BomModuleAssignment>> grouped = plan.groupedByModule();
-        Map<BomModule, List<BomModuleAssignment>> groupedPlugins = groupByModule(plan.pluginAssignments(), plan.modules());
         for (BomModule module : plan.modules()) {
             String childArtifact = module.name();
             String childPath = childArtifact + "/pom.xml";
-            result.put(childPath, generateChildModule(plan, module, grouped.get(module),
-                    groupedPlugins.getOrDefault(module, List.of()), childArtifact));
+            result.put(childPath, generateChildModule(plan, module, grouped.get(module), childArtifact));
         }
         return result;
     }
@@ -119,12 +119,18 @@ public final class BomGenerator {
             model.addModule(module.name());
         }
 
+        // pluginManagement lives in the parent — it only propagates via
+        // parent inheritance, NOT via BOM import. Child modules only have
+        // dependencyManagement (which IS importable via scope=import).
+        if (!plan.pluginAssignments().isEmpty()) {
+            applyPluginManagement(model, sortedAssignments(plan.pluginAssignments()), plan.versionFormat());
+        }
+
         return writeModel(model);
     }
 
     private String generateChildModule(BomGenerationPlan plan, BomModule module,
                                        List<BomModuleAssignment> assignments,
-                                       List<BomModuleAssignment> pluginAssignments,
                                        String childArtifactId) {
         Model model = new Model();
         model.setModelVersion("4.0.0");
@@ -142,10 +148,6 @@ public final class BomGenerator {
         List<BomModuleAssignment> sorted = sortedAssignments(
                 assignments != null ? assignments : List.of());
         applyVersionFormat(model, sorted, plan.versionFormat());
-
-        if (pluginAssignments != null && !pluginAssignments.isEmpty()) {
-            applyPluginManagement(model, sortedAssignments(pluginAssignments), plan.versionFormat());
-        }
 
         return writeModel(model);
     }
