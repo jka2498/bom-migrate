@@ -215,24 +215,18 @@ public class MigrationPreviewService {
         StringBuilder sb = new StringBuilder();
 
         if (hasPlugins) {
-            // Parent block — needed for pluginManagement inheritance
-            sb.append("<!-- Use as parent to inherit both dependency and plugin management -->\n");
+            // Option 1: parent (gets everything)
+            sb.append("<!-- Option 1: Use as parent (inherits dependency + plugin management) -->\n");
             sb.append("<parent>\n");
             sb.append("    <groupId>").append(session.getParentGroupId()).append("</groupId>\n");
             sb.append("    <artifactId>").append(session.getParentArtifactId()).append("</artifactId>\n");
             sb.append("    <version>").append(session.getParentVersion()).append("</version>\n");
             sb.append("    <relativePath/>\n");
             sb.append("</parent>\n");
+            sb.append("\n");
 
-            if (isMultiModule) {
-                // Multi-module: child modules' dependencyManagement isn't inherited
-                // via parent — services also need to import child modules for deps.
-                sb.append("\n<!-- Import child modules for dependency management -->\n");
-            } else {
-                // Single-module: parent already contains dependencyManagement, so
-                // no additional import is needed.
-                return sb.toString();
-            }
+            // Option 2: BOM import (deps only)
+            sb.append("<!-- Option 2: Import as BOM (dependency management only, plugins need manual version) -->\n");
         }
 
         if (propertiesToAdd != null && !propertiesToAdd.isEmpty()) {
