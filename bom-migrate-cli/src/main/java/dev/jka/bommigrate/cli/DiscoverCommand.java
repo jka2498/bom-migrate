@@ -122,6 +122,10 @@ public class DiscoverCommand implements Callable<Integer> {
             description = "How versions are emitted in the generated BOM: ${COMPLETION-CANDIDATES} (default: INLINE)")
     VersionFormat versionFormat;
 
+    @Option(names = "--include-plugins", defaultValue = "false",
+            description = "Also scan for shared Maven plugins and include them in <pluginManagement>")
+    boolean includePlugins;
+
     @Override
     public Integer call() {
         try {
@@ -198,7 +202,7 @@ public class DiscoverCommand implements Callable<Integer> {
 
         System.out.println("Analysing " + scan.pomPaths.size() + " POM(s)...");
         DependencyFrequencyAnalyser analyser = new DependencyFrequencyAnalyser();
-        DiscoveryReport report = analyser.analyse(scan.pomPaths, minFrequency);
+        DiscoveryReport report = analyser.analyse(scan.pomPaths, minFrequency, includePlugins);
 
         DiscoveryReportFormatter formatter = new DiscoveryReportFormatter();
         System.out.println();
@@ -214,6 +218,13 @@ public class DiscoverCommand implements Callable<Integer> {
             }
             for (int i = 0; i < report.candidates().size(); i++) {
                 System.out.println(formatter.formatCandidate(report.candidates().get(i), i + 1, report.candidates().size()));
+            }
+            if (!report.pluginCandidates().isEmpty()) {
+                System.out.println("\n" + formatter.formatPluginHeader());
+                for (int i = 0; i < report.pluginCandidates().size(); i++) {
+                    System.out.println(formatter.formatCandidate(
+                            report.pluginCandidates().get(i), i + 1, report.pluginCandidates().size()));
+                }
             }
             return 0;
         }
@@ -265,9 +276,14 @@ public class DiscoverCommand implements Callable<Integer> {
             assignments.add(new dev.jka.bommigrate.core.discovery.BomModuleAssignment(
                     c, target, c.suggestedVersion()));
         }
+        List<dev.jka.bommigrate.core.discovery.BomModuleAssignment> pluginAssignments = new ArrayList<>();
+        for (dev.jka.bommigrate.core.discovery.BomCandidate c : report.pluginCandidates()) {
+            pluginAssignments.add(new dev.jka.bommigrate.core.discovery.BomModuleAssignment(
+                    c, target, c.suggestedVersion()));
+        }
         return new BomGenerationPlan(
                 bomGroupId, bomArtifactId, bomVersion,
-                modules, assignments, versionFormat);
+                modules, assignments, pluginAssignments, versionFormat);
     }
 
     private ScanResult gatherScan() throws IOException {
@@ -294,6 +310,22 @@ public class DiscoverCommand implements Callable<Integer> {
         List<String> childMods = bomModel.getModules() != null ? bomModel.getModules() : List.of();
         ServiceBomMatcher matcher = new ServiceBomMatcher();
 
+        // Resolve plugin management from the parent POM if plugins were included
+        DependencyManagementMap pluginBomMap = DependencyManagementMap.EMPTY;
+        if (includePlugins && bomModel.getBuild() != null
+                && bomModel.getBuild().getPluginManagement() != null) {
+            dev.jka.bommigrate.core.resolver.PropertyInterpolator interpolator =
+                    PomModelReader.buildInterpolator(bomModel);
+            List<dev.jka.bommigrate.core.model.ResolvedDependency> resolved = new ArrayList<>();
+            for (var plugin : bomModel.getBuild().getPluginManagement().getPlugins()) {
+                String groupId = plugin.getGroupId() != null ? plugin.getGroupId() : "org.apache.maven.plugins";
+                String version = plugin.getVersion() != null ? interpolator.interpolate(plugin.getVersion()) : "";
+                resolved.add(new dev.jka.bommigrate.core.model.ResolvedDependency(
+                        groupId, plugin.getArtifactId(), version, "jar", ""));
+            }
+            pluginBomMap = new DependencyManagementMap(resolved);
+        }
+
         PomAnalyzer analyser = new PomAnalyzer();
         PomWriter writer = new PomWriter();
         ReportFormatter formatter = new ReportFormatter();
@@ -303,7 +335,9 @@ public class DiscoverCommand implements Callable<Integer> {
             ServiceBomMatcher.MatchResult matchResult = matcher.match(
                     servicePom, bomDir, fullBomMap, bomGid, bomAid, childMods);
             DependencyManagementMap bomMap = matchResult.effectiveBomMap();
-            MigrationReport report = analyser.analyze(servicePom, bomMap);
+            MigrationReport report = includePlugins
+                    ? analyser.analyze(servicePom, bomMap, pluginBomMap)
+                    : analyser.analyze(servicePom, bomMap);
             System.out.println(formatter.format(report));
 
             if (!report.hasChanges()) {
@@ -363,7 +397,8 @@ public class DiscoverCommand implements Callable<Integer> {
                 .map(f -> new ScanMetadata.FailedClone(f.repoName(), f.reason()))
                 .toList();
 
-        ScanMetadata metadata = new ScanMetadata(
+        ScanMetadata metadata = ScanMetadata.fromOrg(
+                targetSource.org,
                 scannedSources,
                 result.skippedByLanguage(),
                 result.skippedNoPom(),

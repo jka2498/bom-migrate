@@ -2,6 +2,7 @@ package dev.jka.bommigrate.core.model;
 
 import dev.jka.bommigrate.core.resolver.PropertyInterpolator;
 import org.apache.maven.model.Model;
+import org.apache.maven.model.Plugin;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
 import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
 
@@ -9,6 +10,8 @@ import java.io.IOException;
 import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Shared helper for parsing POMs and building interpolators.
@@ -49,5 +52,28 @@ public final class PomModelReader {
                         : (model.getParent() != null ? model.getParent().getVersion() : null)
         );
         return interpolator;
+    }
+
+    /**
+     * Extracts managed plugins from the model's {@code <build><pluginManagement>}
+     * section into a {@link DependencyManagementMap} keyed by groupId:artifactId.
+     */
+    public static DependencyManagementMap resolvePluginManagement(Model model) {
+        if (model.getBuild() == null || model.getBuild().getPluginManagement() == null) {
+            return DependencyManagementMap.EMPTY;
+        }
+        List<Plugin> plugins = model.getBuild().getPluginManagement().getPlugins();
+        if (plugins == null || plugins.isEmpty()) {
+            return DependencyManagementMap.EMPTY;
+        }
+        PropertyInterpolator interpolator = buildInterpolator(model);
+        List<ResolvedDependency> resolved = new ArrayList<>();
+        for (Plugin plugin : plugins) {
+            String groupId = plugin.getGroupId() != null ? plugin.getGroupId() : "org.apache.maven.plugins";
+            String artifactId = plugin.getArtifactId();
+            String version = plugin.getVersion() != null ? interpolator.interpolate(plugin.getVersion()) : "";
+            resolved.add(new ResolvedDependency(groupId, artifactId, version, "jar", ""));
+        }
+        return new DependencyManagementMap(resolved);
     }
 }

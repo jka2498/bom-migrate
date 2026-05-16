@@ -51,7 +51,8 @@ public class ScanUploadController {
     @PostMapping("/upload")
     public ResponseEntity<DiscoveryReport> uploadAndScan(
             @RequestParam("files") List<MultipartFile> files,
-            @RequestParam(value = "paths", required = false) List<String> paths
+            @RequestParam(value = "paths", required = false) List<String> paths,
+            @RequestParam(value = "includePlugins", required = false, defaultValue = "false") boolean includePlugins
     ) throws IOException {
         if (files == null || files.isEmpty()) {
             return ResponseEntity.badRequest().build();
@@ -97,11 +98,11 @@ public class ScanUploadController {
             displayNames.add(displayName);
         }
 
-        DiscoveryReport report = analyser.analyse(writtenPoms);
+        DiscoveryReport report = analyser.analyse(writtenPoms, 1, includePlugins);
 
         session.setReport(report);
         session.setScannedPomPaths(writtenPoms);
-        session.setScanMetadata(ScanMetadata.localOnly(displayNames));
+        session.setScanMetadata(ScanMetadata.uploaded(displayNames));
         // Reset any prior assignments since the scan changed
         session.setAssignments(List.of());
         // Invalidate any previously-generated BOM — it was built against a

@@ -23,6 +23,7 @@
                 <input type="file" id="pom-folder-input" webkitdirectory directory multiple/>
                 <span id="file-count" class="file-count">No files selected</span>
                 <button id="clear-files-btn" type="button">Clear all</button>
+                <label class="plugin-toggle"><input type="checkbox" id="include-plugins-checkbox"/> Also scan for plugins</label>
                 <button id="upload-btn" class="primary" disabled>Scan selected POMs</button>
             </div>
             <ul id="selected-files-list" class="file-list"></ul>
@@ -37,6 +38,7 @@
                 <ul id="sources-list"></ul>
             </details>
             <div id="sources-warnings"></div>
+            <button id="clear-scan-btn" type="button" style="margin-top: 0.75rem;">Clear scan</button>
         </section>
 
         <section id="coordinates-panel" class="panel">
@@ -52,7 +54,7 @@
 
         <section id="modules-panel" class="panel">
             <h2>BOM Modules</h2>
-            <p>Define the modules to split your BOM into (leave empty for a single flat BOM).</p>
+            <p>Define the modules for your BOM. Use one module for a flat BOM, or multiple to split dependencies by concern (e.g. <code>backend</code>, <code>infra</code>).</p>
             <div class="module-list" id="module-list"></div>
             <div class="module-controls">
                 <input type="text" id="new-module-name" placeholder="Module name (e.g. backend-core)"/>
@@ -78,6 +80,24 @@
                 </thead>
                 <tbody id="candidate-tbody"></tbody>
             </table>
+            <div id="plugin-candidates-section" class="hidden">
+                <h3>Plugin Candidates</h3>
+                <p class="panel-hint">Plugins discovered in <code>&lt;build&gt;&lt;plugins&gt;</code>. Managed via <code>&lt;pluginManagement&gt;</code> in the parent POM (requires services to use it as <code>&lt;parent&gt;</code>).</p>
+                <table id="plugin-candidate-table">
+                    <thead>
+                        <tr>
+                            <th>Include</th>
+                            <th>Plugin</th>
+                            <th>Services</th>
+                            <th>Versions</th>
+                            <th>Conflict</th>
+                            <th>Version</th>
+                            <th>Module</th>
+                        </tr>
+                    </thead>
+                    <tbody id="plugin-candidate-tbody"></tbody>
+                </table>
+            </div>
             <div class="action-bar">
                 <fieldset id="version-format-toggle">
                     <legend>Version format</legend>

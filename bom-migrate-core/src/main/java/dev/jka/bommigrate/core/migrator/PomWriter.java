@@ -29,9 +29,11 @@ public final class PomWriter {
     private static final Pattern PROPERTY_LINE = Pattern.compile("^\\s*<(.+?)>.*?</\\1>\\s*$");
 
     private final VersionLineLocator locator = new VersionLineLocator();
+    private final PluginVersionLineLocator pluginLocator = new PluginVersionLineLocator();
 
     /**
-     * Generates the modified POM content with version tags removed for STRIP candidates.
+     * Generates the modified POM content with version tags removed for STRIP candidates
+     * (both dependencies and plugins).
      *
      * @param pomPath path to the original POM file
      * @param report  migration report containing classified candidates
@@ -43,9 +45,12 @@ public final class PomWriter {
         List<String> lines = new ArrayList<>(content.lines().toList());
 
         Map<String, VersionLineLocator.VersionElementLocation> locations = locator.locateVersionElements(lines);
+        Map<String, VersionLineLocator.VersionElementLocation> pluginLocations = pluginLocator.locatePluginVersionElements(lines);
 
         // Collect all line ranges to remove (from STRIP candidates)
         TreeSet<Integer> linesToRemove = new TreeSet<>(Comparator.reverseOrder());
+
+        // Dependency version stripping
         for (MigrationCandidate candidate : report.byAction(MigrationAction.STRIP)) {
             ResolvedDependency dep = candidate.dependency();
             String key = dep.key();
@@ -53,8 +58,29 @@ public final class PomWriter {
             // Find matching location — check exact key and duplicate-suffixed keys
             VersionLineLocator.VersionElementLocation location = locations.get(key);
             if (location == null) {
-                // Try duplicate-suffixed keys
                 for (Map.Entry<String, VersionLineLocator.VersionElementLocation> entry : locations.entrySet()) {
+                    if (entry.getKey().startsWith(key)) {
+                        location = entry.getValue();
+                        break;
+                    }
+                }
+            }
+
+            if (location != null) {
+                for (int line = location.startLine(); line <= location.endLine(); line++) {
+                    linesToRemove.add(line);
+                }
+            }
+        }
+
+        // Plugin version stripping
+        for (MigrationCandidate candidate : report.pluginsByAction(MigrationAction.STRIP)) {
+            ResolvedDependency plugin = candidate.dependency();
+            String key = plugin.groupId() + ":" + plugin.artifactId();
+
+            VersionLineLocator.VersionElementLocation location = pluginLocations.get(key);
+            if (location == null) {
+                for (Map.Entry<String, VersionLineLocator.VersionElementLocation> entry : pluginLocations.entrySet()) {
                     if (entry.getKey().startsWith(key)) {
                         location = entry.getValue();
                         break;
