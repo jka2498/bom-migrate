@@ -4,6 +4,7 @@ import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.ScanMetadata;
 import dev.jka.bommigrate.core.discovery.VersionFormat;
 import dev.jka.bommigrate.core.migrator.BomImportInserter;
+import dev.jka.bommigrate.core.migrator.ParentPomInserter;
 import dev.jka.bommigrate.core.migrator.PomAnalyzer;
 import dev.jka.bommigrate.core.migrator.PomDiff;
 import dev.jka.bommigrate.core.migrator.PomWriter;
@@ -11,12 +12,15 @@ import dev.jka.bommigrate.core.model.DependencyManagementMap;
 import dev.jka.bommigrate.core.model.MigrationAction;
 import dev.jka.bommigrate.core.model.MigrationCandidate;
 import dev.jka.bommigrate.core.model.MigrationReport;
+import dev.jka.bommigrate.core.model.PomModelReader;
 import dev.jka.bommigrate.core.resolver.DefaultBomResolver;
 import dev.jka.bommigrate.core.resolver.ServiceBomMatcher;
+import org.apache.maven.model.Model;
 import dev.jka.bommigrate.web.dto.DiffLine;
 import dev.jka.bommigrate.web.dto.FlaggedDependency;
 import dev.jka.bommigrate.web.dto.MigrationPreviewResponse;
 import dev.jka.bommigrate.web.dto.ServicePreview;
+import dev.jka.bommigrate.web.dto.VersionChange;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -43,6 +47,7 @@ public class MigrationPreviewService {
     private final PomAnalyzer pomAnalyzer = new PomAnalyzer();
     private final PomWriter pomWriter = new PomWriter();
     private final BomImportInserter bomImportInserter = new BomImportInserter();
+    private final ParentPomInserter parentPomInserter = new ParentPomInserter();
 
     public MigrationPreviewService(DiscoverySessionService session) {
         this.session = session;
@@ -71,6 +76,10 @@ public class MigrationPreviewService {
 
         DependencyManagementMap fullBomMap = bomResolver.resolve(outputDir, true);
 
+        // Build pluginBomMap from generated BOM's <pluginManagement>
+        Model bomModel = PomModelReader.parseModel(bomPom);
+        DependencyManagementMap pluginBomMap = PomModelReader.resolvePluginManagement(bomModel);
+
         // Multi-module BOM metadata for per-service filtering
         String bomGroupId = session.getParentGroupId();
         String bomArtifactId = session.getParentArtifactId();
@@ -98,7 +107,9 @@ public class MigrationPreviewService {
                     pom, outputDir, fullBomMap, bomGroupId, bomArtifactId, childModuleNames);
             DependencyManagementMap bomMap = matchResult.effectiveBomMap();
 
-            MigrationReport report = pomAnalyzer.analyze(pom, bomMap);
+            // forceStripMismatches=true: the user already confirmed versions in the
+            // candidates table, so version mismatches should be stripped (not flagged).
+            MigrationReport report = pomAnalyzer.analyze(pom, bomMap, pluginBomMap, true);
             String stripped = pomWriter.applyStrips(pom, report);
             String finalContent = bomImportInserter.insertImports(stripped, imports, bomImportProperties);
 
@@ -118,6 +129,45 @@ public class MigrationPreviewService {
                 ));
             }
 
+            List<VersionChange> versionChanges = new ArrayList<>();
+            for (MigrationCandidate candidate : report.byAction(MigrationAction.STRIP)) {
+                if (candidate.reason() != null && candidate.reason().startsWith("version changed:")) {
+                    versionChanges.add(new VersionChange(
+                            candidate.dependency().groupId(),
+                            candidate.dependency().artifactId(),
+                            candidate.dependency().version(),
+                            candidate.bomVersion()
+                    ));
+                }
+            }
+            for (MigrationCandidate candidate : report.pluginsByAction(MigrationAction.STRIP)) {
+                if (candidate.reason() != null && candidate.reason().startsWith("version changed:")) {
+                    versionChanges.add(new VersionChange(
+                            candidate.dependency().groupId(),
+                            candidate.dependency().artifactId(),
+                            candidate.dependency().version(),
+                            candidate.bomVersion()
+                    ));
+                }
+            }
+
+            // Parent-mode diff: use as <parent> instead of BOM import.
+            // Only generated when the BOM has plugins (parent gives both deps + plugins).
+            List<DiffLine> parentDiffLines = null;
+            String parentModifiedContent = null;
+            if (pluginBomMap.size() > 0) {
+                String parentFinal = parentPomInserter.insertParent(
+                        stripped,
+                        session.getParentGroupId(),
+                        session.getParentArtifactId(),
+                        session.getParentVersion());
+                PomDiff parentDiff = PomDiff.between(originalContent, parentFinal);
+                parentDiffLines = parentDiff.lines().stream()
+                        .map(l -> new DiffLine(l.status().name(), l.content(), l.oldNumber(), l.newNumber()))
+                        .toList();
+                parentModifiedContent = parentFinal;
+            }
+
             services.add(new ServicePreview(
                     display,
                     report.stripCount(),
@@ -125,7 +175,10 @@ public class MigrationPreviewService {
                     report.skipCount(),
                     finalContent,
                     diffLines,
-                    flagged
+                    flagged,
+                    versionChanges,
+                    parentDiffLines,
+                    parentModifiedContent
             ));
         }
 
@@ -195,15 +248,40 @@ public class MigrationPreviewService {
     }
 
     /**
-     * Builds the copy-pasteable snippet for the "Import this BOM" panel. When
-     * {@code propertiesToAdd} is non-empty the snippet starts with a
-     * {@code <properties>} block using the same keys that the inserter will
-     * merge into each service POM, followed by the
-     * {@code <dependencyManagement>} block.
+     * Builds the copy-pasteable snippet for the "Import this BOM" panel.
+     *
+     * <p>When plugin assignments exist, the snippet shows {@code <parent>}
+     * usage — because Maven's BOM import ({@code <scope>import</scope>})
+     * only covers {@code <dependencyManagement>}, not {@code <pluginManagement>}.
+     * Using the BOM as a parent gives services both.
+     *
+     * <p>For multi-module BOMs with plugins, the snippet shows both:
+     * a {@code <parent>} for the aggregator (plugins) and
+     * {@code <scope>import</scope>} entries for child modules (deps).
      */
     private String buildBomImportSnippet(List<BomImportInserter.BomImport> imports,
                                           Map<String, String> propertiesToAdd) {
+        boolean hasPlugins = !session.getPluginAssignments().isEmpty();
+        List<BomModule> modules = session.getModules();
+        boolean isMultiModule = modules != null && modules.size() > 1;
+
         StringBuilder sb = new StringBuilder();
+
+        if (hasPlugins) {
+            // Option 1: parent (gets everything)
+            sb.append("<!-- Option 1: Use as parent (inherits dependency + plugin management) -->\n");
+            sb.append("<parent>\n");
+            sb.append("    <groupId>").append(session.getParentGroupId()).append("</groupId>\n");
+            sb.append("    <artifactId>").append(session.getParentArtifactId()).append("</artifactId>\n");
+            sb.append("    <version>").append(session.getParentVersion()).append("</version>\n");
+            sb.append("    <relativePath/>\n");
+            sb.append("</parent>\n");
+            sb.append("\n");
+
+            // Option 2: BOM import (deps only)
+            sb.append("<!-- Option 2: Import as BOM (dependency management only, plugins need manual version) -->\n");
+        }
+
         if (propertiesToAdd != null && !propertiesToAdd.isEmpty()) {
             sb.append("<properties>\n");
             for (Map.Entry<String, String> entry : propertiesToAdd.entrySet()) {

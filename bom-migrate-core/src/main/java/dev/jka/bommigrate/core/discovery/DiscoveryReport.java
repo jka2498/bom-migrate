@@ -5,25 +5,35 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Result of a dependency discovery scan across multiple service POMs.
+ * Result of a dependency (and optionally plugin) discovery scan across multiple service POMs.
  *
- * @param candidates           ranked list of BOM candidates (sorted by score descending)
+ * @param candidates           ranked list of dependency BOM candidates (sorted by score descending)
+ * @param pluginCandidates     ranked list of plugin candidates (empty if --include-plugins was not set)
  * @param totalServicesScanned total number of service POMs scanned
  * @param scanTimestamp        when the scan was run
  */
 public record DiscoveryReport(
         List<BomCandidate> candidates,
+        List<BomCandidate> pluginCandidates,
         int totalServicesScanned,
         Instant scanTimestamp
 ) {
 
     public DiscoveryReport {
         candidates = Collections.unmodifiableList(candidates);
+        pluginCandidates = Collections.unmodifiableList(pluginCandidates);
+    }
+
+    /**
+     * Backward-compatible constructor for callers that only have dependency candidates.
+     */
+    public DiscoveryReport(List<BomCandidate> candidates, int totalServicesScanned, Instant scanTimestamp) {
+        this(candidates, List.of(), totalServicesScanned, scanTimestamp);
     }
 
     /** An empty report, used as a placeholder when the web server is started with no scan yet. */
     public static DiscoveryReport empty() {
-        return new DiscoveryReport(List.of(), 0, Instant.now());
+        return new DiscoveryReport(List.of(), List.of(), 0, Instant.now());
     }
 
     /** Candidates whose versions differ across services. */

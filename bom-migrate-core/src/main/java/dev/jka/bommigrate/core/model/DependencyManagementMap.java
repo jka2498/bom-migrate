@@ -3,6 +3,7 @@ package dev.jka.bommigrate.core.model;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -11,6 +12,8 @@ import java.util.Optional;
  * "groupId:artifactId:type:classifier".
  */
 public final class DependencyManagementMap {
+
+    public static final DependencyManagementMap EMPTY = new DependencyManagementMap(List.of());
 
     private final Map<String, ResolvedDependency> entries;
 

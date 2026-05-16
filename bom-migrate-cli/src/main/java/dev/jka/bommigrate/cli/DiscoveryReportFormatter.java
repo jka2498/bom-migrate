@@ -23,8 +23,15 @@ public final class DiscoveryReportFormatter {
         sb.append(BOLD).append("=== Discovery Report ===").append(RESET).append("\n");
         sb.append("Services scanned: ").append(report.totalServicesScanned()).append("\n");
         sb.append("Unique dependencies: ").append(report.uniqueDependencyCount()).append("\n");
+        if (!report.pluginCandidates().isEmpty()) {
+            sb.append("Plugin candidates: ").append(report.pluginCandidates().size()).append("\n");
+        }
         sb.append("Candidates with version conflicts: ").append(report.conflicting().size()).append("\n");
         return sb.toString();
+    }
+
+    public String formatPluginHeader() {
+        return BOLD + "=== Plugin Candidates ===" + RESET;
     }
 
     public String formatCandidate(BomCandidate candidate, int index, int total) {

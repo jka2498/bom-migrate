@@ -102,8 +102,10 @@ class PomWriterTest {
         String expected = Files.readString(expectedPom);
         assertThat(modified).isEqualTo(expected);
 
-        // guava.version still used by a plugin — must be kept
+        // guava dep is flagged (not stripped) because ${guava.version} is shared
+        // with a plugin and plugins are not managed — version tag stays
         assertThat(modified).contains("<guava.version>");
+        assertThat(modified).contains("${guava.version}");
 
         // slf4j.version only used in the stripped dependency — must be removed
         assertThat(modified).doesNotContain("<slf4j.version>");
