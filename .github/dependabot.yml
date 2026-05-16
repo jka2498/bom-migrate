@@ -9,7 +9,10 @@ updates:
       prefix: "deps:"
     open-pull-requests-limit: 5
     groups:
-      maven-dependencies:
+      maven-patch-minor:
+        update-types:
+          - "minor"
+          - "patch"
         patterns:
           - "*"
 
