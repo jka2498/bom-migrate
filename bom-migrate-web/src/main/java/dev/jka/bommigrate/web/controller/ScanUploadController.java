@@ -101,7 +101,7 @@ public class ScanUploadController {
 
         session.setReport(report);
         session.setScannedPomPaths(writtenPoms);
-        session.setScanMetadata(ScanMetadata.localOnly(displayNames));
+        session.setScanMetadata(ScanMetadata.uploaded(displayNames));
         // Reset any prior assignments since the scan changed
         session.setAssignments(List.of());
         // Invalidate any previously-generated BOM — it was built against a
