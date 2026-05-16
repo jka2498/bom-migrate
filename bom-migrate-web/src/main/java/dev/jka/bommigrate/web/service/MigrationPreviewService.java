@@ -195,15 +195,46 @@ public class MigrationPreviewService {
     }
 
     /**
-     * Builds the copy-pasteable snippet for the "Import this BOM" panel. When
-     * {@code propertiesToAdd} is non-empty the snippet starts with a
-     * {@code <properties>} block using the same keys that the inserter will
-     * merge into each service POM, followed by the
-     * {@code <dependencyManagement>} block.
+     * Builds the copy-pasteable snippet for the "Import this BOM" panel.
+     *
+     * <p>When plugin assignments exist, the snippet shows {@code <parent>}
+     * usage — because Maven's BOM import ({@code <scope>import</scope>})
+     * only covers {@code <dependencyManagement>}, not {@code <pluginManagement>}.
+     * Using the BOM as a parent gives services both.
+     *
+     * <p>For multi-module BOMs with plugins, the snippet shows both:
+     * a {@code <parent>} for the aggregator (plugins) and
+     * {@code <scope>import</scope>} entries for child modules (deps).
      */
     private String buildBomImportSnippet(List<BomImportInserter.BomImport> imports,
                                           Map<String, String> propertiesToAdd) {
+        boolean hasPlugins = !session.getPluginAssignments().isEmpty();
+        List<BomModule> modules = session.getModules();
+        boolean isMultiModule = modules != null && modules.size() > 1;
+
         StringBuilder sb = new StringBuilder();
+
+        if (hasPlugins) {
+            // Parent block — needed for pluginManagement inheritance
+            sb.append("<!-- Use as parent to inherit both dependency and plugin management -->\n");
+            sb.append("<parent>\n");
+            sb.append("    <groupId>").append(session.getParentGroupId()).append("</groupId>\n");
+            sb.append("    <artifactId>").append(session.getParentArtifactId()).append("</artifactId>\n");
+            sb.append("    <version>").append(session.getParentVersion()).append("</version>\n");
+            sb.append("    <relativePath/>\n");
+            sb.append("</parent>\n");
+
+            if (isMultiModule) {
+                // Multi-module: child modules' dependencyManagement isn't inherited
+                // via parent — services also need to import child modules for deps.
+                sb.append("\n<!-- Import child modules for dependency management -->\n");
+            } else {
+                // Single-module: parent already contains dependencyManagement, so
+                // no additional import is needed.
+                return sb.toString();
+            }
+        }
+
         if (propertiesToAdd != null && !propertiesToAdd.isEmpty()) {
             sb.append("<properties>\n");
             for (Map.Entry<String, String> entry : propertiesToAdd.entrySet()) {
