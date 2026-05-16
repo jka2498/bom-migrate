@@ -320,7 +320,7 @@ bom-migrate/
 ### Build & test
 
 ```bash
-mvn clean verify          # compile + run all 149 tests
+mvn clean verify          # compile + run all 151 tests
 mvn test -pl bom-migrate-core   # run core tests only
 mvn clean package -DskipTests   # build fat JAR without tests
 ```
@@ -338,7 +338,7 @@ java -jar bom-migrate-cli/target/bom-migrate-cli-*.jar migrate --bom ./my-bom --
 - Java 17 runtime / Java 21 build
 - Maven multi-module (4 modules)
 - Picocli 4.7 for CLI
-- Spring Boot 3.5 for web UI
+- Spring Boot 4.0 for web UI
 - JGit for shallow-clone
 - No frontend build step — vanilla HTML/CSS/JS in `bom-migrate-web/src/main/resources/static/`
 
