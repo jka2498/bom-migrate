@@ -103,7 +103,13 @@ public final class PomAnalyzer {
      */
     public MigrationReport analyze(Path targetPomPath, DependencyManagementMap bomMap,
                                     DependencyManagementMap pluginBomMap) throws IOException {
-        MigrationReport depReport = analyze(targetPomPath, bomMap);
+        return analyze(targetPomPath, bomMap, pluginBomMap, false);
+    }
+
+    public MigrationReport analyze(Path targetPomPath, DependencyManagementMap bomMap,
+                                    DependencyManagementMap pluginBomMap,
+                                    boolean forceStripMismatches) throws IOException {
+        MigrationReport depReport = analyze(targetPomPath, bomMap, forceStripMismatches);
 
         if (pluginBomMap == null || pluginBomMap.size() == 0) {
             return depReport;
@@ -130,7 +136,7 @@ public final class PomAnalyzer {
                     resolvedVersion != null ? resolvedVersion : "",
                     "maven-plugin", "");
 
-            MigrationCandidate candidate = classifyPlugin(resolved, rawVersion, pluginBomMap);
+            MigrationCandidate candidate = classifyPlugin(resolved, rawVersion, pluginBomMap, forceStripMismatches);
             pluginCandidates.add(candidate);
         }
 
@@ -138,7 +144,8 @@ public final class PomAnalyzer {
     }
 
     private MigrationCandidate classifyPlugin(ResolvedDependency resolved, String rawVersion,
-                                               DependencyManagementMap pluginBomMap) {
+                                               DependencyManagementMap pluginBomMap,
+                                               boolean forceStripMismatches) {
         if (rawVersion == null || rawVersion.isBlank()) {
             return new MigrationCandidate(resolved, MigrationAction.SKIP,
                     "already managed (no version tag)", null);
@@ -148,8 +155,6 @@ public final class PomAnalyzer {
                     "unresolvable property in version: " + resolved.version(), null);
         }
 
-        // Look up by groupId:artifactId (plugins use maven-plugin type but
-        // the BOM map stores them with jar type — use simple GA lookup)
         Optional<ResolvedDependency> bomEntry = pluginBomMap.lookup(resolved.groupId(), resolved.artifactId());
         if (bomEntry.isEmpty()) {
             return new MigrationCandidate(resolved, MigrationAction.SKIP,
@@ -160,6 +165,10 @@ public final class PomAnalyzer {
         if (resolved.version().equals(bomPlugin.version())) {
             return new MigrationCandidate(resolved, MigrationAction.STRIP,
                     "version matches parent pluginManagement", bomPlugin.version());
+        } else if (forceStripMismatches) {
+            return new MigrationCandidate(resolved, MigrationAction.STRIP,
+                    "version changed: service has " + resolved.version() + ", parent has " + bomPlugin.version(),
+                    bomPlugin.version());
         } else {
             return new MigrationCandidate(resolved, MigrationAction.FLAG,
                     "version mismatch: POM has " + resolved.version() + ", parent has " + bomPlugin.version(),

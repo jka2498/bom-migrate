@@ -11,8 +11,10 @@ import dev.jka.bommigrate.core.model.DependencyManagementMap;
 import dev.jka.bommigrate.core.model.MigrationAction;
 import dev.jka.bommigrate.core.model.MigrationCandidate;
 import dev.jka.bommigrate.core.model.MigrationReport;
+import dev.jka.bommigrate.core.model.PomModelReader;
 import dev.jka.bommigrate.core.resolver.DefaultBomResolver;
 import dev.jka.bommigrate.core.resolver.ServiceBomMatcher;
+import org.apache.maven.model.Model;
 import dev.jka.bommigrate.web.dto.DiffLine;
 import dev.jka.bommigrate.web.dto.FlaggedDependency;
 import dev.jka.bommigrate.web.dto.MigrationPreviewResponse;
@@ -72,6 +74,10 @@ public class MigrationPreviewService {
 
         DependencyManagementMap fullBomMap = bomResolver.resolve(outputDir, true);
 
+        // Build pluginBomMap from generated BOM's <pluginManagement>
+        Model bomModel = PomModelReader.parseModel(bomPom);
+        DependencyManagementMap pluginBomMap = PomModelReader.resolvePluginManagement(bomModel);
+
         // Multi-module BOM metadata for per-service filtering
         String bomGroupId = session.getParentGroupId();
         String bomArtifactId = session.getParentArtifactId();
@@ -101,7 +107,7 @@ public class MigrationPreviewService {
 
             // forceStripMismatches=true: the user already confirmed versions in the
             // candidates table, so version mismatches should be stripped (not flagged).
-            MigrationReport report = pomAnalyzer.analyze(pom, bomMap, true);
+            MigrationReport report = pomAnalyzer.analyze(pom, bomMap, pluginBomMap, true);
             String stripped = pomWriter.applyStrips(pom, report);
             String finalContent = bomImportInserter.insertImports(stripped, imports, bomImportProperties);
 
@@ -123,6 +129,16 @@ public class MigrationPreviewService {
 
             List<VersionChange> versionChanges = new ArrayList<>();
             for (MigrationCandidate candidate : report.byAction(MigrationAction.STRIP)) {
+                if (candidate.reason() != null && candidate.reason().startsWith("version changed:")) {
+                    versionChanges.add(new VersionChange(
+                            candidate.dependency().groupId(),
+                            candidate.dependency().artifactId(),
+                            candidate.dependency().version(),
+                            candidate.bomVersion()
+                    ));
+                }
+            }
+            for (MigrationCandidate candidate : report.pluginsByAction(MigrationAction.STRIP)) {
                 if (candidate.reason() != null && candidate.reason().startsWith("version changed:")) {
                     versionChanges.add(new VersionChange(
                             candidate.dependency().groupId(),
