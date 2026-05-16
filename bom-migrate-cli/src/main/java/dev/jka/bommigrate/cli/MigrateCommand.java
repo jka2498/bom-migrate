@@ -4,10 +4,13 @@ import dev.jka.bommigrate.core.migrator.PomAnalyzer;
 import dev.jka.bommigrate.core.migrator.PomWriter;
 import dev.jka.bommigrate.core.model.DependencyManagementMap;
 import dev.jka.bommigrate.core.model.MigrationReport;
+import dev.jka.bommigrate.core.model.PomModelReader;
 import dev.jka.bommigrate.core.resolver.DefaultBomResolver;
+import dev.jka.bommigrate.core.resolver.ServiceBomMatcher;
 import dev.jka.bommigrate.github.ClonedRepo;
 import dev.jka.bommigrate.github.OrgScanResult;
 import dev.jka.bommigrate.github.OrgScanner;
+import org.apache.maven.model.Model;
 import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -102,8 +105,19 @@ public class MigrateCommand implements Callable<Integer> {
         // Resolve BOM
         System.out.println("Resolving BOM: " + bomPath);
         DefaultBomResolver resolver = new DefaultBomResolver();
-        DependencyManagementMap bomMap = resolver.resolve(bomPath, includeTransitiveBomImports);
-        System.out.println("BOM contains " + bomMap.size() + " managed dependencies.\n");
+        DependencyManagementMap fullBomMap = resolver.resolve(bomPath, includeTransitiveBomImports);
+        System.out.println("BOM contains " + fullBomMap.size() + " managed dependencies.\n");
+
+        // Extract BOM metadata for multi-module matching
+        Path bomPomFile = Files.isDirectory(bomPath)
+                ? bomPath.resolve("pom.xml") : bomPath;
+        Model bomModel = PomModelReader.parseModel(bomPomFile);
+        String bomGroupId = bomModel.getGroupId() != null ? bomModel.getGroupId()
+                : (bomModel.getParent() != null ? bomModel.getParent().getGroupId() : "");
+        String bomArtifactId = bomModel.getArtifactId() != null ? bomModel.getArtifactId() : "";
+        List<String> childModules = bomModel.getModules() != null
+                ? bomModel.getModules() : List.of();
+        ServiceBomMatcher bomMatcher = new ServiceBomMatcher();
 
         // Discover target POMs (local or from org)
         List<Path> pomFiles;
@@ -125,6 +139,12 @@ public class MigrateCommand implements Callable<Integer> {
         List<MigrationReport> reports = new ArrayList<>();
 
         for (Path pomFile : pomFiles) {
+            // For multi-module BOMs, filter the BOM map to only child modules
+            // that this service actually imports.
+            ServiceBomMatcher.MatchResult matchResult = bomMatcher.match(
+                    pomFile, bomPath, fullBomMap, bomGroupId, bomArtifactId, childModules);
+            DependencyManagementMap bomMap = matchResult.effectiveBomMap();
+
             MigrationReport report = analyzer.analyze(pomFile, bomMap);
             reports.add(report);
             System.out.println(formatter.format(report));
