@@ -12,6 +12,7 @@ import dev.jka.bommigrate.core.model.MigrationAction;
 import dev.jka.bommigrate.core.model.MigrationCandidate;
 import dev.jka.bommigrate.core.model.MigrationReport;
 import dev.jka.bommigrate.core.resolver.DefaultBomResolver;
+import dev.jka.bommigrate.core.resolver.ServiceBomMatcher;
 import dev.jka.bommigrate.web.dto.DiffLine;
 import dev.jka.bommigrate.web.dto.FlaggedDependency;
 import dev.jka.bommigrate.web.dto.MigrationPreviewResponse;
@@ -38,6 +39,7 @@ public class MigrationPreviewService {
 
     private final DiscoverySessionService session;
     private final DefaultBomResolver bomResolver = new DefaultBomResolver();
+    private final ServiceBomMatcher bomMatcher = new ServiceBomMatcher();
     private final PomAnalyzer pomAnalyzer = new PomAnalyzer();
     private final PomWriter pomWriter = new PomWriter();
     private final BomImportInserter bomImportInserter = new BomImportInserter();
@@ -67,7 +69,15 @@ public class MigrationPreviewService {
                     "Generated BOM is out of date with the current session state; regenerate it");
         }
 
-        DependencyManagementMap bomMap = bomResolver.resolve(outputDir, true);
+        DependencyManagementMap fullBomMap = bomResolver.resolve(outputDir, true);
+
+        // Multi-module BOM metadata for per-service filtering
+        String bomGroupId = session.getParentGroupId();
+        String bomArtifactId = session.getParentArtifactId();
+        List<BomModule> modules = session.getModules();
+        List<String> childModuleNames = modules != null && modules.size() > 1
+                ? modules.stream().map(BomModule::name).toList()
+                : List.of();
 
         List<BomImportInserter.BomImport> imports = buildBomImports();
         Map<String, String> bomImportProperties = buildBomImportProperties();
@@ -82,6 +92,11 @@ public class MigrationPreviewService {
             String display = i < displayNames.size() ? displayNames.get(i) : pom.getFileName().toString();
 
             String originalContent = Files.readString(pom, StandardCharsets.UTF_8);
+
+            // Filter BOM map to only child modules this service imports
+            ServiceBomMatcher.MatchResult matchResult = bomMatcher.match(
+                    pom, outputDir, fullBomMap, bomGroupId, bomArtifactId, childModuleNames);
+            DependencyManagementMap bomMap = matchResult.effectiveBomMap();
 
             MigrationReport report = pomAnalyzer.analyze(pom, bomMap);
             String stripped = pomWriter.applyStrips(pom, report);

@@ -11,7 +11,10 @@ import dev.jka.bommigrate.core.migrator.PomAnalyzer;
 import dev.jka.bommigrate.core.migrator.PomWriter;
 import dev.jka.bommigrate.core.model.DependencyManagementMap;
 import dev.jka.bommigrate.core.model.MigrationReport;
+import dev.jka.bommigrate.core.model.PomModelReader;
 import dev.jka.bommigrate.core.resolver.DefaultBomResolver;
+import dev.jka.bommigrate.core.resolver.ServiceBomMatcher;
+import org.apache.maven.model.Model;
 import dev.jka.bommigrate.github.ClonedRepo;
 import dev.jka.bommigrate.github.OrgScanResult;
 import dev.jka.bommigrate.github.OrgScanner;
@@ -280,7 +283,16 @@ public class DiscoverCommand implements Callable<Integer> {
      */
     private void runMigration(List<Path> servicePoms, Path bomDir) throws IOException {
         DefaultBomResolver resolver = new DefaultBomResolver();
-        DependencyManagementMap bomMap = resolver.resolve(bomDir, true);
+        DependencyManagementMap fullBomMap = resolver.resolve(bomDir, true);
+
+        // Extract BOM metadata for multi-module matching
+        Path bomPomFile = Files.isDirectory(bomDir) ? bomDir.resolve("pom.xml") : bomDir;
+        Model bomModel = PomModelReader.parseModel(bomPomFile);
+        String bomGid = bomModel.getGroupId() != null ? bomModel.getGroupId()
+                : (bomModel.getParent() != null ? bomModel.getParent().getGroupId() : "");
+        String bomAid = bomModel.getArtifactId() != null ? bomModel.getArtifactId() : "";
+        List<String> childMods = bomModel.getModules() != null ? bomModel.getModules() : List.of();
+        ServiceBomMatcher matcher = new ServiceBomMatcher();
 
         PomAnalyzer analyser = new PomAnalyzer();
         PomWriter writer = new PomWriter();
@@ -288,6 +300,9 @@ public class DiscoverCommand implements Callable<Integer> {
         int applied = 0;
 
         for (Path servicePom : servicePoms) {
+            ServiceBomMatcher.MatchResult matchResult = matcher.match(
+                    servicePom, bomDir, fullBomMap, bomGid, bomAid, childMods);
+            DependencyManagementMap bomMap = matchResult.effectiveBomMap();
             MigrationReport report = analyser.analyze(servicePom, bomMap);
             System.out.println(formatter.format(report));
 
