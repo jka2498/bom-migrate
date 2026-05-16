@@ -348,6 +348,34 @@ pre {
 .count-strip { background: #e6f8ea; color: #0b6b1a; }
 .count-flag { background: #fff3e0; color: #8a5100; }
 .count-skip { background: #f0f0f5; color: #515154; }
+/* Version changes info box (blue) — deps whose version was bumped by the BOM */
+.version-changes-list {
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: #edf4ff;
+    border-left: 3px solid #0071e3;
+    border-radius: 6px;
+}
+.version-changes-list h4 {
+    margin: 0 0 0.5rem;
+    font-size: 0.8rem;
+    color: #004c99;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.version-changes-list ul {
+    margin: 0;
+    padding-left: 1rem;
+    font-size: 0.8rem;
+    color: #515154;
+}
+.version-changes-list code {
+    background: #dce8f7;
+    padding: 0.05rem 0.3rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+}
+
 .flagged-list {
     margin-top: 0.75rem;
     padding: 0.75rem 1rem;

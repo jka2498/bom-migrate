@@ -17,6 +17,7 @@ import dev.jka.bommigrate.web.dto.DiffLine;
 import dev.jka.bommigrate.web.dto.FlaggedDependency;
 import dev.jka.bommigrate.web.dto.MigrationPreviewResponse;
 import dev.jka.bommigrate.web.dto.ServicePreview;
+import dev.jka.bommigrate.web.dto.VersionChange;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -98,7 +99,9 @@ public class MigrationPreviewService {
                     pom, outputDir, fullBomMap, bomGroupId, bomArtifactId, childModuleNames);
             DependencyManagementMap bomMap = matchResult.effectiveBomMap();
 
-            MigrationReport report = pomAnalyzer.analyze(pom, bomMap);
+            // forceStripMismatches=true: the user already confirmed versions in the
+            // candidates table, so version mismatches should be stripped (not flagged).
+            MigrationReport report = pomAnalyzer.analyze(pom, bomMap, true);
             String stripped = pomWriter.applyStrips(pom, report);
             String finalContent = bomImportInserter.insertImports(stripped, imports, bomImportProperties);
 
@@ -118,6 +121,18 @@ public class MigrationPreviewService {
                 ));
             }
 
+            List<VersionChange> versionChanges = new ArrayList<>();
+            for (MigrationCandidate candidate : report.byAction(MigrationAction.STRIP)) {
+                if (candidate.reason() != null && candidate.reason().startsWith("version changed:")) {
+                    versionChanges.add(new VersionChange(
+                            candidate.dependency().groupId(),
+                            candidate.dependency().artifactId(),
+                            candidate.dependency().version(),
+                            candidate.bomVersion()
+                    ));
+                }
+            }
+
             services.add(new ServicePreview(
                     display,
                     report.stripCount(),
@@ -125,7 +140,8 @@ public class MigrationPreviewService {
                     report.skipCount(),
                     finalContent,
                     diffLines,
-                    flagged
+                    flagged,
+                    versionChanges
             ));
         }
 

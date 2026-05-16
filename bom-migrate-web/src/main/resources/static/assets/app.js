@@ -664,6 +664,22 @@ function renderMigrationPreview(preview) {
         `;
         details.appendChild(dsum);
 
+        if (svc.versionChanges && svc.versionChanges.length > 0) {
+            const changeBox = document.createElement("div");
+            changeBox.className = "version-changes-list";
+            const ch = document.createElement("h4");
+            ch.textContent = "Version changes applied";
+            changeBox.appendChild(ch);
+            const ul = document.createElement("ul");
+            svc.versionChanges.forEach(vc => {
+                const li = document.createElement("li");
+                li.innerHTML = `<code>${vc.groupId}:${vc.artifactId}</code> — <code>${vc.serviceVersion}</code> → <code>${vc.bomVersion}</code>`;
+                ul.appendChild(li);
+            });
+            changeBox.appendChild(ul);
+            details.appendChild(changeBox);
+        }
+
         if (svc.flagged && svc.flagged.length > 0) {
             const flaggedBox = document.createElement("div");
             flaggedBox.className = "flagged-list";

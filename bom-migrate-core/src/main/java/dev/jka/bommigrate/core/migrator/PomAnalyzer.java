@@ -39,6 +39,19 @@ public final class PomAnalyzer {
      * @throws IOException on parse or file errors
      */
     public MigrationReport analyze(Path targetPomPath, DependencyManagementMap bomMap) throws IOException {
+        return analyze(targetPomPath, bomMap, false);
+    }
+
+    /**
+     * Analyzes the target POM with an option to force-strip version mismatches.
+     *
+     * @param forceStripMismatches when true, deps managed by the BOM are always STRIP
+     *                             even if the version differs — for the web UI flow where
+     *                             the user already confirmed the target version in the
+     *                             candidates table
+     */
+    public MigrationReport analyze(Path targetPomPath, DependencyManagementMap bomMap,
+                                    boolean forceStripMismatches) throws IOException {
         Model model = PomModelReader.parseModel(targetPomPath);
         PropertyInterpolator interpolator = PomModelReader.buildInterpolator(model);
 
@@ -47,7 +60,6 @@ public final class PomAnalyzer {
             return new MigrationReport(targetPomPath, List.of());
         }
 
-        // Detect duplicates: track keys we've seen
         Map<String, List<Integer>> keyToIndices = new LinkedHashMap<>();
         List<ResolvedDependency> resolvedDeps = new ArrayList<>();
         List<String> rawVersions = new ArrayList<>();
@@ -63,7 +75,6 @@ public final class PomAnalyzer {
             keyToIndices.computeIfAbsent(resolved.key(), k -> new ArrayList<>()).add(i);
         }
 
-        // Find duplicate keys
         Set<Integer> duplicateIndices = new HashSet<>();
         for (List<Integer> indices : keyToIndices.values()) {
             if (indices.size() > 1) {
@@ -76,7 +87,7 @@ public final class PomAnalyzer {
             ResolvedDependency resolved = resolvedDeps.get(i);
             String rawVersion = rawVersions.get(i);
 
-            candidates.add(classify(resolved, rawVersion, bomMap, duplicateIndices.contains(i)));
+            candidates.add(classify(resolved, rawVersion, bomMap, duplicateIndices.contains(i), forceStripMismatches));
         }
 
         return new MigrationReport(targetPomPath, candidates);
@@ -160,7 +171,8 @@ public final class PomAnalyzer {
             ResolvedDependency resolved,
             String rawVersion,
             DependencyManagementMap bomMap,
-            boolean isDuplicate) {
+            boolean isDuplicate,
+            boolean forceStripMismatches) {
 
         // No version tag present — already managed
         if (rawVersion == null || rawVersion.isBlank()) {
@@ -199,6 +211,10 @@ public final class PomAnalyzer {
         if (resolved.version().equals(bomDep.version())) {
             return new MigrationCandidate(resolved, MigrationAction.STRIP,
                     "version matches BOM", bomDep.version());
+        } else if (forceStripMismatches) {
+            return new MigrationCandidate(resolved, MigrationAction.STRIP,
+                    "version changed: service has " + resolved.version() + ", BOM has " + bomDep.version(),
+                    bomDep.version());
         } else {
             return new MigrationCandidate(resolved, MigrationAction.FLAG,
                     "version mismatch: POM has " + resolved.version() + ", BOM has " + bomDep.version(),

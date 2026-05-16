@@ -22,6 +22,7 @@ public record ServicePreview(
         int skipCount,
         String modifiedContent,
         List<DiffLine> diffLines,
-        List<FlaggedDependency> flagged
+        List<FlaggedDependency> flagged,
+        List<VersionChange> versionChanges
 ) {
 }
