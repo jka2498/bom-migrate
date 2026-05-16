@@ -11,6 +11,7 @@ If you work with multiple Maven microservices, you've hit these problems:
 - **Version drift** — the same dependency has different versions across services, and nobody knows which is "right"
 - **No central governance** — there's no BOM yet, or there is one but half the services still have hardcoded `<version>` tags
 - **Manual spreadsheet work** — figuring out which deps to centralise means grepping across 20+ repos
+- **Dependency updates everywhere** — tools like Dependabot open PRs in every service repo for every dependency bump. With a centralised BOM, Dependabot runs in **one place** and services just bump the BOM version
 
 **bom-migrate** automates the full lifecycle: discover which dependencies should be in a BOM, generate the BOM, and strip the now-redundant version tags from every service POM.
 
