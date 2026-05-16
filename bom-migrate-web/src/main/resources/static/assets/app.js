@@ -256,10 +256,12 @@ function hideResultPanels() {
 }
 
 // Called whenever the user changes settings (coordinates, modules, assignments)
-// after a previous generation. Hides the stale result panels and shows a banner
-// telling them to click Generate BOM again.
+// after a previous generation. Only shows the stale banner if result panels are
+// actually visible — prevents false positives when the preview never loaded
+// (e.g. backend returned 409 on first try).
 function markPreviewStale() {
     if (!state.generatedOnce) return;
+    if ($("result-panel").classList.contains("hidden")) return;
     hideResultPanels();
     $("stale-banner").classList.remove("hidden");
 }
