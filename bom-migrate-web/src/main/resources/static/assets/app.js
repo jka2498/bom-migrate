@@ -653,6 +653,11 @@ $("generate-btn").addEventListener("click", async () => {
         return;
     }
 
+    if (state.modules.length === 0) {
+        alert("Add at least one BOM module before generating.");
+        return;
+    }
+
     // Build assignments from selections
     const assignments = [];
     for (const c of state.report.candidates) {
