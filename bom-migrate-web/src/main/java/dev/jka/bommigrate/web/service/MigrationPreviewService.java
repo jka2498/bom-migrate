@@ -4,6 +4,7 @@ import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.ScanMetadata;
 import dev.jka.bommigrate.core.discovery.VersionFormat;
 import dev.jka.bommigrate.core.migrator.BomImportInserter;
+import dev.jka.bommigrate.core.migrator.ParentPomInserter;
 import dev.jka.bommigrate.core.migrator.PomAnalyzer;
 import dev.jka.bommigrate.core.migrator.PomDiff;
 import dev.jka.bommigrate.core.migrator.PomWriter;
@@ -46,6 +47,7 @@ public class MigrationPreviewService {
     private final PomAnalyzer pomAnalyzer = new PomAnalyzer();
     private final PomWriter pomWriter = new PomWriter();
     private final BomImportInserter bomImportInserter = new BomImportInserter();
+    private final ParentPomInserter parentPomInserter = new ParentPomInserter();
 
     public MigrationPreviewService(DiscoverySessionService session) {
         this.session = session;
@@ -149,6 +151,23 @@ public class MigrationPreviewService {
                 }
             }
 
+            // Parent-mode diff: use as <parent> instead of BOM import.
+            // Only generated when the BOM has plugins (parent gives both deps + plugins).
+            List<DiffLine> parentDiffLines = null;
+            String parentModifiedContent = null;
+            if (pluginBomMap.size() > 0) {
+                String parentFinal = parentPomInserter.insertParent(
+                        stripped,
+                        session.getParentGroupId(),
+                        session.getParentArtifactId(),
+                        session.getParentVersion());
+                PomDiff parentDiff = PomDiff.between(originalContent, parentFinal);
+                parentDiffLines = parentDiff.lines().stream()
+                        .map(l -> new DiffLine(l.status().name(), l.content(), l.oldNumber(), l.newNumber()))
+                        .toList();
+                parentModifiedContent = parentFinal;
+            }
+
             services.add(new ServicePreview(
                     display,
                     report.stripCount(),
@@ -157,7 +176,9 @@ public class MigrationPreviewService {
                     finalContent,
                     diffLines,
                     flagged,
-                    versionChanges
+                    versionChanges,
+                    parentDiffLines,
+                    parentModifiedContent
             ));
         }
 

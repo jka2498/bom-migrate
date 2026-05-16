@@ -701,7 +701,9 @@ function renderMigrationPreview(preview) {
             details.appendChild(flaggedBox);
         }
 
-        // Tab bar: diff (default) | full modified POM
+        // Tab bar: Diff (import) | Diff (parent) | Full pom.xml
+        const hasParent = svc.parentDiffLines && svc.parentDiffLines.length > 0;
+        let lastDiffMode = "import";
         const viewWrapper = document.createElement("div");
         viewWrapper.className = "preview-view";
 
@@ -711,7 +713,15 @@ function renderMigrationPreview(preview) {
         const diffTab = document.createElement("button");
         diffTab.type = "button";
         diffTab.className = "preview-tab active";
-        diffTab.textContent = "Diff";
+        diffTab.textContent = hasParent ? "Diff (import)" : "Diff";
+
+        let parentTab = null;
+        if (hasParent) {
+            parentTab = document.createElement("button");
+            parentTab.type = "button";
+            parentTab.className = "preview-tab";
+            parentTab.textContent = "Diff (parent)";
+        }
 
         const fullTab = document.createElement("button");
         fullTab.type = "button";
@@ -722,9 +732,15 @@ function renderMigrationPreview(preview) {
         copyBtn.type = "button";
         copyBtn.className = "copy-btn preview-copy";
         copyBtn.textContent = "Copy full";
-        copyBtn.addEventListener("click", () => copyToClipboard(svc.modifiedContent, copyBtn));
+        copyBtn.addEventListener("click", () => {
+            const content = lastDiffMode === "parent"
+                ? (svc.parentModifiedContent || svc.modifiedContent)
+                : svc.modifiedContent;
+            copyToClipboard(content, copyBtn);
+        });
 
         tabBar.appendChild(diffTab);
+        if (parentTab) tabBar.appendChild(parentTab);
         tabBar.appendChild(fullTab);
         tabBar.appendChild(copyBtn);
         viewWrapper.appendChild(tabBar);
@@ -733,6 +749,13 @@ function renderMigrationPreview(preview) {
         diffView.className = "preview-content";
         diffView.appendChild(renderDiff(svc.diffLines || []));
 
+        let parentView = null;
+        if (hasParent) {
+            parentView = document.createElement("div");
+            parentView.className = "preview-content hidden";
+            parentView.appendChild(renderDiff(svc.parentDiffLines));
+        }
+
         const fullView = document.createElement("div");
         fullView.className = "preview-content hidden";
         const pre = document.createElement("pre");
@@ -740,20 +763,28 @@ function renderMigrationPreview(preview) {
         fullView.appendChild(pre);
 
         viewWrapper.appendChild(diffView);
+        if (parentView) viewWrapper.appendChild(parentView);
         viewWrapper.appendChild(fullView);
 
-        diffTab.addEventListener("click", () => {
-            diffTab.classList.add("active");
-            fullTab.classList.remove("active");
-            diffView.classList.remove("hidden");
-            fullView.classList.add("hidden");
-        });
-        fullTab.addEventListener("click", () => {
-            fullTab.classList.add("active");
-            diffTab.classList.remove("active");
-            fullView.classList.remove("hidden");
-            diffView.classList.add("hidden");
-        });
+        const allTabs = [diffTab, parentTab, fullTab].filter(Boolean);
+        const allViews = [diffView, parentView, fullView].filter(Boolean);
+
+        function activateTab(idx) {
+            allTabs.forEach((t, i) => t.classList.toggle("active", i === idx));
+            allViews.forEach((v, i) => v.classList.toggle("hidden", i !== idx));
+            const fullTabIdx = hasParent ? 2 : 1;
+            if (idx === 0) lastDiffMode = "import";
+            else if (hasParent && idx === 1) lastDiffMode = "parent";
+            if (idx === fullTabIdx) {
+                pre.textContent = lastDiffMode === "parent"
+                    ? svc.parentModifiedContent
+                    : svc.modifiedContent;
+            }
+        }
+
+        diffTab.addEventListener("click", () => activateTab(0));
+        if (parentTab) parentTab.addEventListener("click", () => activateTab(1));
+        fullTab.addEventListener("click", () => activateTab(hasParent ? 2 : 1));
 
         details.appendChild(viewWrapper);
         output.appendChild(details);
