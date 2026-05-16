@@ -9,6 +9,7 @@ import dev.jka.bommigrate.core.model.ResolvedDependency;
 import dev.jka.bommigrate.core.resolver.PropertyInterpolator;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
+import org.apache.maven.model.Plugin;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -79,6 +80,80 @@ public final class PomAnalyzer {
         }
 
         return new MigrationReport(targetPomPath, candidates);
+    }
+
+    /**
+     * Analyzes both dependencies AND plugins in the target POM.
+     *
+     * @param targetPomPath path to the microservice pom.xml
+     * @param bomMap        the resolved BOM dependency management map
+     * @param pluginBomMap  map of plugin groupId:artifactId → version managed by the parent
+     * @return migration report with classified dependency and plugin candidates
+     */
+    public MigrationReport analyze(Path targetPomPath, DependencyManagementMap bomMap,
+                                    DependencyManagementMap pluginBomMap) throws IOException {
+        MigrationReport depReport = analyze(targetPomPath, bomMap);
+
+        if (pluginBomMap == null || pluginBomMap.size() == 0) {
+            return depReport;
+        }
+
+        Model model = PomModelReader.parseModel(targetPomPath);
+        if (model.getBuild() == null || model.getBuild().getPlugins() == null) {
+            return depReport;
+        }
+
+        PropertyInterpolator interpolator = PomModelReader.buildInterpolator(model);
+        List<MigrationCandidate> pluginCandidates = new ArrayList<>();
+
+        for (Plugin plugin : model.getBuild().getPlugins()) {
+            String groupId = plugin.getGroupId() != null ? plugin.getGroupId() : "org.apache.maven.plugins";
+            String artifactId = plugin.getArtifactId();
+            if (artifactId == null) continue;
+
+            String rawVersion = plugin.getVersion();
+            String resolvedVersion = rawVersion != null ? interpolator.interpolate(rawVersion) : null;
+
+            ResolvedDependency resolved = new ResolvedDependency(
+                    groupId, artifactId,
+                    resolvedVersion != null ? resolvedVersion : "",
+                    "maven-plugin", "");
+
+            MigrationCandidate candidate = classifyPlugin(resolved, rawVersion, pluginBomMap);
+            pluginCandidates.add(candidate);
+        }
+
+        return new MigrationReport(targetPomPath, depReport.candidates(), pluginCandidates);
+    }
+
+    private MigrationCandidate classifyPlugin(ResolvedDependency resolved, String rawVersion,
+                                               DependencyManagementMap pluginBomMap) {
+        if (rawVersion == null || rawVersion.isBlank()) {
+            return new MigrationCandidate(resolved, MigrationAction.SKIP,
+                    "already managed (no version tag)", null);
+        }
+        if (resolved.version().contains("${")) {
+            return new MigrationCandidate(resolved, MigrationAction.SKIP,
+                    "unresolvable property in version: " + resolved.version(), null);
+        }
+
+        // Look up by groupId:artifactId (plugins use maven-plugin type but
+        // the BOM map stores them with jar type — use simple GA lookup)
+        Optional<ResolvedDependency> bomEntry = pluginBomMap.lookup(resolved.groupId(), resolved.artifactId());
+        if (bomEntry.isEmpty()) {
+            return new MigrationCandidate(resolved, MigrationAction.SKIP,
+                    "not managed by parent", null);
+        }
+
+        ResolvedDependency bomPlugin = bomEntry.get();
+        if (resolved.version().equals(bomPlugin.version())) {
+            return new MigrationCandidate(resolved, MigrationAction.STRIP,
+                    "version matches parent pluginManagement", bomPlugin.version());
+        } else {
+            return new MigrationCandidate(resolved, MigrationAction.FLAG,
+                    "version mismatch: POM has " + resolved.version() + ", parent has " + bomPlugin.version(),
+                    bomPlugin.version());
+        }
     }
 
     private MigrationCandidate classify(
