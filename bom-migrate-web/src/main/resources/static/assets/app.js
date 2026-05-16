@@ -323,7 +323,10 @@ function renderScanMetadata() {
         return;
     }
 
-    const parts = [`${scanned.length} POM file${scanned.length === 1 ? "" : "s"} analysed`];
+    const scanSource = meta.scanSource;
+    const parts = [];
+    if (scanSource) parts.push(scanSource);
+    parts.push(`${scanned.length} POM file${scanned.length === 1 ? "" : "s"} analysed`);
     if (skippedLang.length > 0) parts.push(`${skippedLang.length} repo(s) skipped by language filter`);
     if (skippedNoPom.length > 0) parts.push(`${skippedNoPom.length} repo(s) had no pom.xml`);
     if (failed.length > 0) parts.push(`${failed.length} repo(s) failed to clone`);

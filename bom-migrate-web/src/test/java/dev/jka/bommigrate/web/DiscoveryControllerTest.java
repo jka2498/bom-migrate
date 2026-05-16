@@ -103,6 +103,7 @@ class DiscoveryControllerTest {
     @Test
     void getScanMetadataReturnsSources() throws Exception {
         ScanMetadata metadata = new ScanMetadata(
+                "GitHub org: my-org",
                 List.of("my-repo: service-a/pom.xml", "my-repo: service-b/pom.xml"),
                 List.of("python-service", "terraform-repo"),
                 List.of("no-pom-repo"),
@@ -112,6 +113,7 @@ class DiscoveryControllerTest {
 
         mockMvc.perform(get("/api/scan/metadata"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scanSource").value("GitHub org: my-org"))
                 .andExpect(jsonPath("$.scannedSources.length()").value(2))
                 .andExpect(jsonPath("$.scannedSources[0]").value("my-repo: service-a/pom.xml"))
                 .andExpect(jsonPath("$.skippedByLanguage[0]").value("python-service"))

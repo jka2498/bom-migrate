@@ -363,7 +363,8 @@ public class DiscoverCommand implements Callable<Integer> {
                 .map(f -> new ScanMetadata.FailedClone(f.repoName(), f.reason()))
                 .toList();
 
-        ScanMetadata metadata = new ScanMetadata(
+        ScanMetadata metadata = ScanMetadata.fromOrg(
+                targetSource.org,
                 scannedSources,
                 result.skippedByLanguage(),
                 result.skippedNoPom(),
