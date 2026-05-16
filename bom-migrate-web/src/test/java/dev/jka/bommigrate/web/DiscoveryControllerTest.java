@@ -1,6 +1,6 @@
 package dev.jka.bommigrate.web;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import dev.jka.bommigrate.core.discovery.BomCandidate;
 import dev.jka.bommigrate.core.discovery.BomModule;
 import dev.jka.bommigrate.core.discovery.BomModuleAssignment;
