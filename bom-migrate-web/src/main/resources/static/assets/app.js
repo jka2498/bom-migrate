@@ -136,6 +136,7 @@ function buildDisplayPath(file, fallbackIndex) {
 function addPendingFiles(files, { fromFolder }) {
     let addedCount = 0;
     let skippedNonPom = 0;
+    let skippedDuplicate = 0;
     let i = 0;
     for (const file of files) {
         i++;
@@ -150,6 +151,18 @@ function addPendingFiles(files, { fromFolder }) {
         }
 
         let path = buildDisplayPath(file, state.pendingFiles.size + i);
+        // When adding an individual file (no path info), check if a
+        // folder-picked entry already ends with the same filename — the
+        // user likely picked the same file twice via different methods.
+        if (!fromFolder && !path.includes("/")) {
+            const basename = path.replace(/ \(\d+\)$/, "");
+            const alreadyPickedViaFolder = Array.from(state.pendingFiles.keys())
+                .some(k => k.includes("/") && k.endsWith("/" + basename));
+            if (alreadyPickedViaFolder) {
+                skippedDuplicate++;
+                continue;
+            }
+        }
         // De-dup within the current pending set. If the same relative path is
         // already pending, skip it silently. For the individual-file picker we
         // append " (2)", " (3)" suffixes to distinguish duplicates.
@@ -166,7 +179,7 @@ function addPendingFiles(files, { fromFolder }) {
         state.pendingFiles.set(path, { file, path });
         addedCount++;
     }
-    return { addedCount, skippedNonPom };
+    return { addedCount, skippedNonPom, skippedDuplicate };
 }
 
 function renderPendingFiles() {
@@ -199,10 +212,13 @@ function renderPendingFiles() {
 }
 
 $("pom-file-input").addEventListener("change", (e) => {
-    addPendingFiles(Array.from(e.target.files || []), { fromFolder: false });
-    // Reset the input so the user can re-pick the same file again later if they remove it.
+    const picked = Array.from(e.target.files || []);
+    const { addedCount, skippedDuplicate } = addPendingFiles(picked, { fromFolder: false });
     e.target.value = "";
     renderPendingFiles();
+    if (addedCount === 0 && skippedDuplicate > 0) {
+        alert("Those files appear to already be selected via the folder picker.");
+    }
 });
 
 $("pom-folder-input").addEventListener("change", (e) => {
@@ -249,6 +265,18 @@ $("upload-btn").addEventListener("click", async () => {
     }
 });
 
+$("clear-scan-btn").addEventListener("click", () => {
+    state.report = null;
+    state.scanMetadata = null;
+    state.selections.clear();
+    state.generatedOnce = false;
+    renderScanMetadata();
+    renderCandidates();
+    hideResultPanels();
+    hideStaleBanner();
+    $("summary").textContent = "";
+});
+
 function hideResultPanels() {
     $("result-panel").classList.add("hidden");
     $("import-snippet-panel").classList.add("hidden");
@@ -256,10 +284,12 @@ function hideResultPanels() {
 }
 
 // Called whenever the user changes settings (coordinates, modules, assignments)
-// after a previous generation. Hides the stale result panels and shows a banner
-// telling them to click Generate BOM again.
+// after a previous generation. Only shows the stale banner if result panels are
+// actually visible — prevents false positives when the preview never loaded
+// (e.g. backend returned 409 on first try).
 function markPreviewStale() {
     if (!state.generatedOnce) return;
+    if ($("result-panel").classList.contains("hidden")) return;
     hideResultPanels();
     $("stale-banner").classList.remove("hidden");
 }
@@ -648,6 +678,11 @@ function renderMigrationPreview(preview) {
 $("generate-btn").addEventListener("click", async () => {
     if (!state.report || state.report.candidates.length === 0) {
         alert("Nothing to generate — scan some POMs first.");
+        return;
+    }
+
+    if (state.modules.length === 0) {
+        alert("Add at least one BOM module before generating.");
         return;
     }
 
