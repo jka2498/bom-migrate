@@ -26,6 +26,7 @@ public class DiscoverySessionService {
     private List<Path> scannedPomPaths = new ArrayList<>();
     private List<BomModule> modules = new ArrayList<>();
     private List<BomModuleAssignment> assignments = new ArrayList<>();
+    private List<BomModuleAssignment> pluginAssignments = new ArrayList<>();
     private Path outputDir;
     private String parentGroupId = "com.example";
     private String parentArtifactId = "my-bom";
@@ -91,10 +92,18 @@ public class DiscoverySessionService {
         this.assignments = new ArrayList<>(assignments);
     }
 
+    public synchronized List<BomModuleAssignment> getPluginAssignments() {
+        return new ArrayList<>(pluginAssignments);
+    }
+
+    public synchronized void setPluginAssignments(List<BomModuleAssignment> pluginAssignments) {
+        this.pluginAssignments = pluginAssignments != null ? new ArrayList<>(pluginAssignments) : new ArrayList<>();
+    }
+
     public synchronized BomGenerationPlan buildPlan() {
         return new BomGenerationPlan(
                 parentGroupId, parentArtifactId, parentVersion,
-                modules, assignments, versionFormat);
+                modules, assignments, pluginAssignments, versionFormat);
     }
 
     public synchronized VersionFormat getVersionFormat() {

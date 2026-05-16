@@ -248,6 +248,23 @@ pre {
     align-items: center;
     gap: 0.4rem;
 }
+.plugin-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    color: #515154;
+    cursor: pointer;
+}
+#plugin-candidates-section {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e5e5ea;
+}
+#plugin-candidates-section h3 {
+    font-size: 1rem;
+    margin: 0 0 0.25rem;
+}
 .file-remove {
     background: none;
     border: none;

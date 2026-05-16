@@ -20,13 +20,16 @@ const api = {
         if (res.status === 204) return null;
         return res.json();
     },
-    async uploadPoms(entries) {
+    async uploadPoms(entries, includePlugins) {
         // entries: [{ file, path }, ...]  — `path` is the display/relative path
         // (webkitRelativePath for folder-picked files, file.name for individual-picked files)
         const form = new FormData();
         for (const e of entries) {
             form.append("files", e.file, e.file.name);
             form.append("paths", e.path);
+        }
+        if (includePlugins) {
+            form.append("includePlugins", "true");
         }
         const res = await fetch("/api/scan/upload", { method: "POST", body: form });
         if (!res.ok) throw new Error("Upload failed: " + res.status);
@@ -41,11 +44,11 @@ const api = {
         });
         return res.json();
     },
-    async confirm(assignments) {
+    async confirm(assignments, pluginAssignments) {
         const res = await fetch("/api/discovery/confirm", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ assignments })
+            body: JSON.stringify({ assignments, pluginAssignments: pluginAssignments || [] })
         });
         return res.json();
     },
@@ -83,7 +86,8 @@ const state = {
     report: null,
     scanMetadata: null,
     modules: [],
-    selections: new Map(), // key -> { included, version, moduleName }
+    selections: new Map(),       // dep key -> { included, version, moduleName }
+    pluginSelections: new Map(), // plugin key -> { included, version, moduleName }
     // Map of displayPath -> { file, path }. Displayed in the pending list,
     // uploaded as (files[], paths[]) multipart pairs. Keyed by displayPath
     // so picking the same file (or same folder) twice deduplicates.
@@ -243,12 +247,14 @@ $("upload-btn").addEventListener("click", async () => {
     btn.textContent = "Scanning...";
     try {
         const entries = Array.from(state.pendingFiles.values());
-        state.report = await api.uploadPoms(entries);
+        const includePlugins = $("include-plugins-checkbox").checked;
+        state.report = await api.uploadPoms(entries, includePlugins);
         state.scanMetadata = await api.getScanMetadata();
         state.pendingFiles.clear();
         renderPendingFiles();
         renderScanMetadata();
         renderCandidates();
+        renderPluginCandidates();
         // After a fresh scan, re-fetch coordinates so any suggested groupId
         // from the newly-scanned POMs pre-fills the form.
         await loadCoordinates();
@@ -269,9 +275,11 @@ $("clear-scan-btn").addEventListener("click", () => {
     state.report = null;
     state.scanMetadata = null;
     state.selections.clear();
+    state.pluginSelections.clear();
     state.generatedOnce = false;
     renderScanMetadata();
     renderCandidates();
+    renderPluginCandidates();
     hideResultPanels();
     hideStaleBanner();
     $("summary").textContent = "";
@@ -454,6 +462,61 @@ function renderCandidates() {
 
     $("summary").textContent =
         `${state.report.candidates.length} candidates across ${state.report.totalServicesScanned} services`;
+}
+
+function renderPluginCandidates() {
+    const section = $("plugin-candidates-section");
+    const tbody = $("plugin-candidate-tbody");
+    tbody.innerHTML = "";
+
+    if (!state.report || !state.report.pluginCandidates || state.report.pluginCandidates.length === 0) {
+        section.classList.add("hidden");
+        return;
+    }
+
+    section.classList.remove("hidden");
+
+    state.report.pluginCandidates.forEach(c => {
+        const key = c.groupId + ":" + c.artifactId;
+        const sel = state.pluginSelections.get(key) || {
+            included: true,
+            version: c.suggestedVersion,
+            moduleName: state.modules[0]?.name || ""
+        };
+        state.pluginSelections.set(key, sel);
+
+        const tr = document.createElement("tr");
+        const versionsText = Object.entries(c.versions)
+            .map(([v, n]) => `${v} (${n})`).join(", ");
+
+        tr.innerHTML = `
+            <td><input type="checkbox" ${sel.included ? "checked" : ""}/></td>
+            <td>${c.groupId}:<strong>${c.artifactId}</strong></td>
+            <td>${c.serviceCount}/${c.totalServicesScanned}</td>
+            <td><small>${versionsText}</small></td>
+            <td class="conflict-${c.conflictSeverity}">${c.conflictSeverity}</td>
+            <td><input type="text" value="${sel.version}"/></td>
+            <td>${renderModuleSelect(sel.moduleName)}</td>
+        `;
+
+        tr.querySelector("input[type=checkbox]").addEventListener("change", e => {
+            sel.included = e.target.checked;
+            markPreviewStale();
+        });
+        tr.querySelector("input[type=text]").addEventListener("change", e => {
+            sel.version = e.target.value;
+            markPreviewStale();
+        });
+        const sel_el = tr.querySelector("select");
+        if (sel_el) {
+            sel_el.addEventListener("change", e => {
+                sel.moduleName = e.target.value;
+                markPreviewStale();
+            });
+        }
+
+        tbody.appendChild(tr);
+    });
 }
 
 function renderModuleSelect(currentName) {
@@ -703,6 +766,22 @@ $("generate-btn").addEventListener("click", async () => {
         });
     }
 
+    // Build plugin assignments
+    const pluginAssignments = [];
+    if (state.report.pluginCandidates) {
+        for (const c of state.report.pluginCandidates) {
+            const key = c.groupId + ":" + c.artifactId;
+            const sel = state.pluginSelections.get(key);
+            if (!sel || !sel.included) continue;
+            const module = state.modules.find(m => m.name === sel.moduleName) || state.modules[0];
+            pluginAssignments.push({
+                candidate: c,
+                module,
+                confirmedVersion: sel.version
+            });
+        }
+    }
+
     // Ensure coordinates are persisted before generation (user may have typed in the form without clicking Save)
     await api.setCoordinates({
         groupId: $("coord-group-id").value.trim() || "com.example",
@@ -711,7 +790,7 @@ $("generate-btn").addEventListener("click", async () => {
     });
 
     await api.setModules(state.modules);
-    await api.confirm(assignments);
+    await api.confirm(assignments, pluginAssignments);
     const result = await api.generate(selectedVersionFormat());
 
     // Generated BOM files

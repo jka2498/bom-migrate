@@ -49,15 +49,22 @@ public class DiscoveryController {
         return ResponseEntity.ok(session.getModules());
     }
 
-    public record ConfirmRequest(List<BomModuleAssignment> assignments) {}
+    public record ConfirmRequest(
+            List<BomModuleAssignment> assignments,
+            List<BomModuleAssignment> pluginAssignments
+    ) {}
 
-    public record ConfirmResponse(int accepted, int modules) {}
+    public record ConfirmResponse(int accepted, int pluginsAccepted, int modules) {}
 
     @PostMapping("/discovery/confirm")
     public ResponseEntity<ConfirmResponse> confirm(@RequestBody ConfirmRequest request) {
         session.setAssignments(request.assignments());
+        if (request.pluginAssignments() != null) {
+            session.setPluginAssignments(request.pluginAssignments());
+        }
         return ResponseEntity.ok(new ConfirmResponse(
                 request.assignments().size(),
+                request.pluginAssignments() != null ? request.pluginAssignments().size() : 0,
                 session.getModules().size()
         ));
     }

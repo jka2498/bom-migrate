@@ -23,6 +23,7 @@
                 <input type="file" id="pom-folder-input" webkitdirectory directory multiple/>
                 <span id="file-count" class="file-count">No files selected</span>
                 <button id="clear-files-btn" type="button">Clear all</button>
+                <label class="plugin-toggle"><input type="checkbox" id="include-plugins-checkbox"/> Also scan for plugins</label>
                 <button id="upload-btn" class="primary" disabled>Scan selected POMs</button>
             </div>
             <ul id="selected-files-list" class="file-list"></ul>
@@ -79,6 +80,24 @@
                 </thead>
                 <tbody id="candidate-tbody"></tbody>
             </table>
+            <div id="plugin-candidates-section" class="hidden">
+                <h3>Plugin Candidates</h3>
+                <p class="panel-hint">Plugins discovered in <code>&lt;build&gt;&lt;plugins&gt;</code>. Managed via <code>&lt;pluginManagement&gt;</code> in the parent POM (requires services to use it as <code>&lt;parent&gt;</code>).</p>
+                <table id="plugin-candidate-table">
+                    <thead>
+                        <tr>
+                            <th>Include</th>
+                            <th>Plugin</th>
+                            <th>Services</th>
+                            <th>Versions</th>
+                            <th>Conflict</th>
+                            <th>Version</th>
+                            <th>Module</th>
+                        </tr>
+                    </thead>
+                    <tbody id="plugin-candidate-tbody"></tbody>
+                </table>
+            </div>
             <div class="action-bar">
                 <fieldset id="version-format-toggle">
                     <legend>Version format</legend>
