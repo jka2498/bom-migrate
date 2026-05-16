@@ -402,6 +402,18 @@ pre {
     border-radius: 4px;
     font-size: 0.75rem;
 }
+.plugin-shared-badge {
+    display: inline-block;
+    background: #6e3fba;
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-right: 0.3rem;
+}
 
 /* Coordinates form */
 .coordinates-form {

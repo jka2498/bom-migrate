@@ -689,7 +689,12 @@ function renderMigrationPreview(preview) {
             const ul = document.createElement("ul");
             svc.flagged.forEach(f => {
                 const li = document.createElement("li");
-                li.innerHTML = `<code>${f.groupId}:${f.artifactId}</code> — service has <code>${f.serviceVersion}</code>, BOM has <code>${f.bomVersion || "?"}</code>`;
+                const isPluginShared = f.reason && f.reason.includes("shared with plugin");
+                if (isPluginShared) {
+                    li.innerHTML = `<code>${f.groupId}:${f.artifactId}</code> — <span class="plugin-shared-badge">plugin shared</span> version property also used by a plugin (enable plugin management to strip)`;
+                } else {
+                    li.innerHTML = `<code>${f.groupId}:${f.artifactId}</code> — service has <code>${f.serviceVersion}</code>, BOM has <code>${f.bomVersion || "?"}</code>`;
+                }
                 ul.appendChild(li);
             });
             flaggedBox.appendChild(ul);

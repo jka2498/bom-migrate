@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -29,6 +30,8 @@ import java.util.regex.Pattern;
 public final class PomAnalyzer {
 
     private static final Pattern VERSION_RANGE_PATTERN = Pattern.compile("[\\[\\]()]");
+    private static final Pattern PROPERTY_REF = Pattern.compile("\\$\\{(.+?)}");
+
 
     /**
      * Analyzes the target POM and produces a migration report.
@@ -52,6 +55,11 @@ public final class PomAnalyzer {
      */
     public MigrationReport analyze(Path targetPomPath, DependencyManagementMap bomMap,
                                     boolean forceStripMismatches) throws IOException {
+        return analyze(targetPomPath, bomMap, forceStripMismatches, false);
+    }
+
+    MigrationReport analyze(Path targetPomPath, DependencyManagementMap bomMap,
+                            boolean forceStripMismatches, boolean pluginsManaged) throws IOException {
         Model model = PomModelReader.parseModel(targetPomPath);
         PropertyInterpolator interpolator = PomModelReader.buildInterpolator(model);
 
@@ -59,6 +67,12 @@ public final class PomAnalyzer {
         if (dependencies == null) {
             return new MigrationReport(targetPomPath, List.of());
         }
+
+        // When plugins are NOT managed, collect properties referenced by plugin
+        // versions so we can flag deps that share a property with a plugin.
+        Set<String> pluginProperties = pluginsManaged
+                ? Set.of()
+                : collectPluginProperties(model);
 
         Map<String, List<Integer>> keyToIndices = new LinkedHashMap<>();
         List<ResolvedDependency> resolvedDeps = new ArrayList<>();
@@ -87,7 +101,8 @@ public final class PomAnalyzer {
             ResolvedDependency resolved = resolvedDeps.get(i);
             String rawVersion = rawVersions.get(i);
 
-            candidates.add(classify(resolved, rawVersion, bomMap, duplicateIndices.contains(i), forceStripMismatches));
+            candidates.add(classify(resolved, rawVersion, bomMap, duplicateIndices.contains(i),
+                    forceStripMismatches, pluginProperties));
         }
 
         return new MigrationReport(targetPomPath, candidates);
@@ -109,7 +124,8 @@ public final class PomAnalyzer {
     public MigrationReport analyze(Path targetPomPath, DependencyManagementMap bomMap,
                                     DependencyManagementMap pluginBomMap,
                                     boolean forceStripMismatches) throws IOException {
-        MigrationReport depReport = analyze(targetPomPath, bomMap, forceStripMismatches);
+        boolean pluginsManaged = pluginBomMap != null && pluginBomMap.size() > 0;
+        MigrationReport depReport = analyze(targetPomPath, bomMap, forceStripMismatches, pluginsManaged);
 
         if (pluginBomMap == null || pluginBomMap.size() == 0) {
             return depReport;
@@ -181,33 +197,29 @@ public final class PomAnalyzer {
             String rawVersion,
             DependencyManagementMap bomMap,
             boolean isDuplicate,
-            boolean forceStripMismatches) {
+            boolean forceStripMismatches,
+            Set<String> pluginProperties) {
 
-        // No version tag present — already managed
         if (rawVersion == null || rawVersion.isBlank()) {
             return new MigrationCandidate(resolved, MigrationAction.SKIP,
                     "already managed (no version tag)", null);
         }
 
-        // Duplicate declaration
         if (isDuplicate) {
             return new MigrationCandidate(resolved, MigrationAction.FLAG,
                     "duplicate declaration", null);
         }
 
-        // Version range
         if (VERSION_RANGE_PATTERN.matcher(resolved.version()).find()) {
             return new MigrationCandidate(resolved, MigrationAction.SKIP,
                     "version range detected", null);
         }
 
-        // Unresolvable property
         if (resolved.version().contains("${")) {
             return new MigrationCandidate(resolved, MigrationAction.SKIP,
                     "unresolvable property in version: " + resolved.version(), null);
         }
 
-        // Look up in BOM
         Optional<ResolvedDependency> bomEntry = bomMap.lookup(resolved.key());
         if (bomEntry.isEmpty()) {
             return new MigrationCandidate(resolved, MigrationAction.SKIP,
@@ -216,7 +228,18 @@ public final class PomAnalyzer {
 
         ResolvedDependency bomDep = bomEntry.get();
 
-        // Compare versions
+        // Guard: if this dep's version comes from a property that a plugin also
+        // uses, stripping the dep version could leave the plugin and dep at
+        // different versions. Flag it so the user knows plugins aren't managed.
+        if (!pluginProperties.isEmpty() && rawVersion.contains("${")) {
+            Matcher m = PROPERTY_REF.matcher(rawVersion);
+            if (m.find() && pluginProperties.contains(m.group(1))) {
+                return new MigrationCandidate(resolved, MigrationAction.FLAG,
+                        "version property shared with plugin (plugins not managed)",
+                        bomDep.version());
+            }
+        }
+
         if (resolved.version().equals(bomDep.version())) {
             return new MigrationCandidate(resolved, MigrationAction.STRIP,
                     "version matches BOM", bomDep.version());
@@ -229,6 +252,23 @@ public final class PomAnalyzer {
                     "version mismatch: POM has " + resolved.version() + ", BOM has " + bomDep.version(),
                     bomDep.version());
         }
+    }
+
+    private Set<String> collectPluginProperties(Model model) {
+        Set<String> properties = new HashSet<>();
+        if (model.getBuild() == null || model.getBuild().getPlugins() == null) {
+            return properties;
+        }
+        for (Plugin plugin : model.getBuild().getPlugins()) {
+            String version = plugin.getVersion();
+            if (version != null) {
+                Matcher m = PROPERTY_REF.matcher(version);
+                while (m.find()) {
+                    properties.add(m.group(1));
+                }
+            }
+        }
+        return properties;
     }
 
     private String resolveVersion(Dependency dep, PropertyInterpolator interpolator) {
