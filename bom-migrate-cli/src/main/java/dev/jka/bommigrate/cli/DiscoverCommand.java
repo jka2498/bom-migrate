@@ -122,6 +122,10 @@ public class DiscoverCommand implements Callable<Integer> {
             description = "How versions are emitted in the generated BOM: ${COMPLETION-CANDIDATES} (default: INLINE)")
     VersionFormat versionFormat;
 
+    @Option(names = "--include-plugins", defaultValue = "false",
+            description = "Also scan for shared Maven plugins and include them in <pluginManagement>")
+    boolean includePlugins;
+
     @Override
     public Integer call() {
         try {
@@ -198,7 +202,7 @@ public class DiscoverCommand implements Callable<Integer> {
 
         System.out.println("Analysing " + scan.pomPaths.size() + " POM(s)...");
         DependencyFrequencyAnalyser analyser = new DependencyFrequencyAnalyser();
-        DiscoveryReport report = analyser.analyse(scan.pomPaths, minFrequency);
+        DiscoveryReport report = analyser.analyse(scan.pomPaths, minFrequency, includePlugins);
 
         DiscoveryReportFormatter formatter = new DiscoveryReportFormatter();
         System.out.println();
@@ -265,9 +269,14 @@ public class DiscoverCommand implements Callable<Integer> {
             assignments.add(new dev.jka.bommigrate.core.discovery.BomModuleAssignment(
                     c, target, c.suggestedVersion()));
         }
+        List<dev.jka.bommigrate.core.discovery.BomModuleAssignment> pluginAssignments = new ArrayList<>();
+        for (dev.jka.bommigrate.core.discovery.BomCandidate c : report.pluginCandidates()) {
+            pluginAssignments.add(new dev.jka.bommigrate.core.discovery.BomModuleAssignment(
+                    c, target, c.suggestedVersion()));
+        }
         return new BomGenerationPlan(
                 bomGroupId, bomArtifactId, bomVersion,
-                modules, assignments, versionFormat);
+                modules, assignments, pluginAssignments, versionFormat);
     }
 
     private ScanResult gatherScan() throws IOException {
