@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build & Test (Java ${{ matrix.java }})
+  test:
+    name: Java ${{ matrix.java }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -39,3 +39,18 @@ jobs:
           path: bom-migrate-cli/target/bom-migrate-cli-*.jar
           if-no-files-found: error
           retention-days: 14
+
+  # Gate job with a fixed name for branch protection rules.
+  # Succeeds only when all matrix jobs pass.
+  build:
+    name: Build & Test
+    needs: test
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check matrix results
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "Matrix jobs failed or were cancelled"
+            exit 1
+          fi
