@@ -127,12 +127,15 @@ The `--web` flag launches an interactive review interface. Upload POMs (or pick 
 - Version format choice: **inline** (`<version>1.2.3</version>`) or **properties** (`${guava.version}`)
 - Auto-suggested BOM coordinates from common groupId prefix
 - Minimum frequency threshold to exclude rarely-used deps
+- **Plugin scanning** (opt-in) — discovers shared Maven plugins, generates `<pluginManagement>` in the BOM
 
 ### Migration
 - Format-preserving POM edits — only the `<version>` tag is removed, nothing else changes
 - Orphaned property cleanup (e.g. removes `<guava.version>` from `<properties>` if no longer referenced)
 - Multi-module BOM awareness — only strips deps from child modules the service actually imports
 - BOM import block insertion with optional `<properties>` section
+- Plugin version stripping when plugin management is enabled
+- Shared-property guard — flags deps whose version property is also used by an unmanaged plugin (prevents silent version drift)
 - Structured diff output (CLI and web)
 
 ### GitHub Integration
@@ -149,6 +152,9 @@ The `--web` flag launches an interactive review interface. Upload POMs (or pick 
 - Stale preview detection — warns when settings change after generation
 - Copy-to-clipboard on every generated file and snippet
 - GitHub-style red/green diff with collapsible context
+- Side-by-side "Diff (import)" vs "Diff (parent)" preview for BOMs with plugins
+- "Version changes applied" info box highlighting resolved conflicts
+- "Also scan for plugins" opt-in checkbox
 
 ---
 
@@ -170,6 +176,7 @@ The `--web` flag launches an interactive review interface. Upload POMs (or pick 
 | `--version-format` | `INLINE` | `INLINE` or `PROPERTIES` |
 | `--output-dir` | `./generated-bom` | Where to write the BOM files |
 | `--min-frequency` | `1` | Exclude deps used by fewer than N services |
+| `--include-plugins` | `false` | Also scan for shared Maven plugins and include them in `<pluginManagement>` |
 | `--dry-run` | `false` | Show report without writing files |
 | `--repo-filter` | — | Glob pattern for org repos (e.g. `claims-*`) |
 | `--include-all-languages` | `false` | Skip JVM language pre-filter |
@@ -186,6 +193,7 @@ The `--web` flag launches an interactive review interface. Upload POMs (or pick 
 | `--target`, `-t` | — | Service POM paths (mutually exclusive with `--org`) |
 | `--org` | — | GitHub org to scan |
 | `--dry-run` | `false` | Print diffs without modifying files |
+| `--include-plugins` | `false` | Also strip plugin `<version>` tags managed by the BOM's `<pluginManagement>` |
 | `--include-transitive-bom-imports` | `false` | Resolve nested BOM imports |
 | `--open-pr` | `false` | Create GitHub PR per repo |
 | `--repo-filter` | — | Glob pattern for org repos |
@@ -232,6 +240,17 @@ java -jar bom-migrate-cli/target/bom-migrate-cli-*.jar discover \
 ```
 
 Assign each candidate to a module in the web UI. The generated BOM is a multi-module structure with a parent aggregator + one child POM per module.
+
+### "I also want to centralise plugin versions"
+
+```bash
+java -jar bom-migrate-cli/target/bom-migrate-cli-*.jar discover \
+  --target ./services/* \
+  --include-plugins \
+  --web
+```
+
+The candidates table will include shared plugins (e.g. `maven-compiler-plugin`, `spring-boot-maven-plugin`). The generated BOM gets a `<pluginManagement>` section. In the service preview, choose "Diff (parent)" to see what it looks like when services use the BOM as a `<parent>`.
 
 ### "I want to discover and migrate in one shot (CI pipeline)"
 
@@ -283,6 +302,7 @@ bom-migrate/
 - Duplicate dependency declarations (flagged for review)
 - Dependencies with no version tag (already managed — skipped)
 - Orphaned version properties auto-cleaned after stripping
+- Shared version properties between deps and plugins detected (flagged when plugins aren't managed to prevent drift)
 - Major version conflicts flagged as high priority
 - Monorepo detection (multiple POMs per cloned repo)
 
@@ -291,7 +311,7 @@ bom-migrate/
 - **Parent POM inheritance** — deps managed solely through `<parent>` (not BOM import) are classified as SKIP. Workaround: pass the parent POM as an additional `--bom`.
 - **Remote BOM resolution** — BOMs referenced by GAV that aren't on the local filesystem are skipped with a warning.
 - **Gradle** — not supported.
-- **Plugin dependencies** — `<build><plugins>` sections are not processed.
+- **Plugin management requires parent** — Maven's BOM import (`<scope>import</scope>`) only covers `<dependencyManagement>`, not `<pluginManagement>`. To inherit managed plugin versions, services must use the generated BOM as a `<parent>`. The web UI shows both approaches side-by-side.
 
 ---
 
