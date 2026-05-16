@@ -1,9 +1,12 @@
 package dev.jka.bommigrate.core.discovery;
 
+import org.apache.maven.model.Build;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.DependencyManagement;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.Parent;
+import org.apache.maven.model.Plugin;
+import org.apache.maven.model.PluginManagement;
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 
 import java.io.IOException;
@@ -59,10 +62,12 @@ public final class BomGenerator {
         // Multi-module: aggregator parent + one child per module
         result.put("pom.xml", generateAggregatorParent(plan));
         Map<BomModule, List<BomModuleAssignment>> grouped = plan.groupedByModule();
+        Map<BomModule, List<BomModuleAssignment>> groupedPlugins = groupByModule(plan.pluginAssignments(), plan.modules());
         for (BomModule module : plan.modules()) {
             String childArtifact = module.name();
             String childPath = childArtifact + "/pom.xml";
-            result.put(childPath, generateChildModule(plan, module, grouped.get(module), childArtifact));
+            result.put(childPath, generateChildModule(plan, module, grouped.get(module),
+                    groupedPlugins.getOrDefault(module, List.of()), childArtifact));
         }
         return result;
     }
@@ -95,6 +100,10 @@ public final class BomGenerator {
         List<BomModuleAssignment> sorted = sortedAssignments(plan.assignments());
         applyVersionFormat(model, sorted, plan.versionFormat());
 
+        if (!plan.pluginAssignments().isEmpty()) {
+            applyPluginManagement(model, sortedAssignments(plan.pluginAssignments()), plan.versionFormat());
+        }
+
         return writeModel(model);
     }
 
@@ -114,7 +123,9 @@ public final class BomGenerator {
     }
 
     private String generateChildModule(BomGenerationPlan plan, BomModule module,
-                                       List<BomModuleAssignment> assignments, String childArtifactId) {
+                                       List<BomModuleAssignment> assignments,
+                                       List<BomModuleAssignment> pluginAssignments,
+                                       String childArtifactId) {
         Model model = new Model();
         model.setModelVersion("4.0.0");
 
@@ -131,6 +142,10 @@ public final class BomGenerator {
         List<BomModuleAssignment> sorted = sortedAssignments(
                 assignments != null ? assignments : List.of());
         applyVersionFormat(model, sorted, plan.versionFormat());
+
+        if (pluginAssignments != null && !pluginAssignments.isEmpty()) {
+            applyPluginManagement(model, sortedAssignments(pluginAssignments), plan.versionFormat());
+        }
 
         return writeModel(model);
     }
@@ -195,6 +210,63 @@ public final class BomGenerator {
             return simple;
         }
         return assignment.candidate().groupId() + "." + assignment.candidate().artifactId() + ".version";
+    }
+
+    /**
+     * Builds a {@code <build><pluginManagement><plugins>} section from plugin assignments.
+     * Merges into the model's existing build if present.
+     */
+    private void applyPluginManagement(Model model, List<BomModuleAssignment> pluginAssignments, VersionFormat format) {
+        Build build = model.getBuild() != null ? model.getBuild() : new Build();
+        PluginManagement pluginMgmt = new PluginManagement();
+
+        // Collect property names already used by dependency management (avoids collision)
+        Set<String> usedPropertyNames = new HashSet<>();
+        if (model.getProperties() != null) {
+            model.getProperties().stringPropertyNames().forEach(usedPropertyNames::add);
+        }
+
+        if (format == VersionFormat.PROPERTIES) {
+            Properties props = model.getProperties() != null ? model.getProperties() : new Properties();
+            for (BomModuleAssignment assignment : pluginAssignments) {
+                String propName = derivePropertyName(assignment, usedPropertyNames);
+                usedPropertyNames.add(propName);
+                props.setProperty(propName, assignment.confirmedVersion());
+
+                Plugin plugin = new Plugin();
+                plugin.setGroupId(assignment.candidate().groupId());
+                plugin.setArtifactId(assignment.candidate().artifactId());
+                plugin.setVersion("${" + propName + "}");
+                pluginMgmt.addPlugin(plugin);
+            }
+            model.setProperties(props);
+        } else {
+            for (BomModuleAssignment assignment : pluginAssignments) {
+                Plugin plugin = new Plugin();
+                plugin.setGroupId(assignment.candidate().groupId());
+                plugin.setArtifactId(assignment.candidate().artifactId());
+                plugin.setVersion(assignment.confirmedVersion());
+                pluginMgmt.addPlugin(plugin);
+            }
+        }
+
+        build.setPluginManagement(pluginMgmt);
+        model.setBuild(build);
+    }
+
+    private Map<BomModule, List<BomModuleAssignment>> groupByModule(
+            List<BomModuleAssignment> assignments, List<BomModule> modules) {
+        Map<BomModule, List<BomModuleAssignment>> grouped = new LinkedHashMap<>();
+        for (BomModule module : modules) {
+            grouped.put(module, new ArrayList<>());
+        }
+        for (BomModuleAssignment assignment : assignments) {
+            List<BomModuleAssignment> list = grouped.get(assignment.module());
+            if (list != null) {
+                list.add(assignment);
+            }
+        }
+        return grouped;
     }
 
     private List<BomModuleAssignment> sortedAssignments(List<BomModuleAssignment> input) {

@@ -11,12 +11,13 @@ import java.util.Map;
  * parent coordinates, the defined modules, user-confirmed assignments,
  * and how versions should be formatted in the generated POMs.
  *
- * @param parentGroupId     groupId for the generated BOM parent POM
- * @param parentArtifactId  artifactId for the generated BOM parent POM
- * @param parentVersion     version for the generated BOM parent POM
- * @param modules           user-defined BOM modules
- * @param assignments       confirmed candidate-to-module assignments
- * @param versionFormat     how version values should be emitted (inline or via properties)
+ * @param parentGroupId       groupId for the generated BOM parent POM
+ * @param parentArtifactId    artifactId for the generated BOM parent POM
+ * @param parentVersion       version for the generated BOM parent POM
+ * @param modules             user-defined BOM modules
+ * @param assignments         confirmed dependency candidate-to-module assignments
+ * @param pluginAssignments   confirmed plugin candidate-to-module assignments (opt-in)
+ * @param versionFormat       how version values should be emitted (inline or via properties)
  */
 public record BomGenerationPlan(
         String parentGroupId,
@@ -24,6 +25,7 @@ public record BomGenerationPlan(
         String parentVersion,
         List<BomModule> modules,
         List<BomModuleAssignment> assignments,
+        List<BomModuleAssignment> pluginAssignments,
         VersionFormat versionFormat
 ) {
 
@@ -39,6 +41,8 @@ public record BomGenerationPlan(
         }
         modules = Collections.unmodifiableList(modules);
         assignments = Collections.unmodifiableList(assignments);
+        pluginAssignments = pluginAssignments != null
+                ? Collections.unmodifiableList(pluginAssignments) : List.of();
         if (versionFormat == null) {
             versionFormat = VersionFormat.INLINE;
         }
@@ -50,6 +54,26 @@ public record BomGenerationPlan(
                         "Assignment references unknown module: " + assignment.module().name());
             }
         }
+        for (BomModuleAssignment assignment : pluginAssignments) {
+            if (!modules.contains(assignment.module())) {
+                throw new IllegalArgumentException(
+                        "Plugin assignment references unknown module: " + assignment.module().name());
+            }
+        }
+    }
+
+    /**
+     * Backward-compatible constructor without plugin assignments.
+     */
+    public BomGenerationPlan(
+            String parentGroupId,
+            String parentArtifactId,
+            String parentVersion,
+            List<BomModule> modules,
+            List<BomModuleAssignment> assignments,
+            VersionFormat versionFormat
+    ) {
+        this(parentGroupId, parentArtifactId, parentVersion, modules, assignments, List.of(), versionFormat);
     }
 
     /**
@@ -62,7 +86,7 @@ public record BomGenerationPlan(
             List<BomModule> modules,
             List<BomModuleAssignment> assignments
     ) {
-        this(parentGroupId, parentArtifactId, parentVersion, modules, assignments, VersionFormat.INLINE);
+        this(parentGroupId, parentArtifactId, parentVersion, modules, assignments, List.of(), VersionFormat.INLINE);
     }
 
     /** Groups assignments by their assigned module, preserving insertion order. */
